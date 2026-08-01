@@ -2,12 +2,13 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame,
     QScrollArea, QLineEdit, QTextEdit,
-    QDialog, QDialogButtonBox, QComboBox,
-    QMessageBox, QSizePolicy, QSpacerItem,
-    QSlider, QGridLayout,
+    QDialog, QComboBox, QMessageBox,
+    QSlider, QGroupBox, QSizePolicy,
+    QTableWidget, QTableWidgetItem,
+    QHeaderView, QAbstractItemView,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor
 
 from utils.theme import ThemeManager
 from core.processor import (
@@ -20,111 +21,77 @@ from ui.dashboard import EmptyState, LoadingLabel
 
 
 # ─────────────────────────────────────────────
-#  PROJECT DIALOG  (Create / Edit)
+#  PROJECT DIALOG
 # ─────────────────────────────────────────────
 class ProjectDialog(QDialog):
-    """
-    Modal dialog for creating or editing a project.
-    """
-
     def __init__(self, parent=None, project: dict = None):
         super().__init__(parent)
-        self.project    = project          # None = create mode
-        self.is_edit    = project is not None
-        self.setWindowTitle(
-            "Edit Project" if self.is_edit else "New Project"
-        )
-        self.setFixedWidth(480)
+        self.project = project
+        self.is_edit = project is not None
+        self.setWindowTitle("Edit Project" if self.is_edit else "New Project")
+        self.setFixedWidth(440)
         self.setModal(True)
         self._build()
-        self._apply_theme()
-        ThemeManager.add_listener(self._apply_theme)
 
     def _build(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(12)
 
-        # ── Title ──
-        title = QLabel(
-            "✏️ Edit Project" if self.is_edit
-            else "➕ Create New Project"
-        )
-        title.setStyleSheet(
-            "font-size: 16px; font-weight: 700;"
-            "background: transparent;"
-        )
-        layout.addWidget(title)
+        # Project details
+        details_group = QGroupBox("Project Details")
+        d_layout = QVBoxLayout(details_group)
+        d_layout.setSpacing(8)
+        d_layout.setContentsMargins(10, 14, 10, 10)
 
-        # ── Name ──
-        layout.addWidget(self._field_label("Project Name *"))
+        # Name
+        d_layout.addWidget(self._label("Project name:"))
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText(
-            "e.g. Q1 Report Duplicates"
-        )
-        self.name_input.setFixedHeight(38)
+        self.name_input.setPlaceholderText("e.g. Q1 Duplicate Report")
         if self.is_edit:
-            self.name_input.setText(
-                self.project.get("name", "")
-            )
-        layout.addWidget(self.name_input)
+            self.name_input.setText(self.project.get("name", ""))
+        d_layout.addWidget(self.name_input)
 
-        # ── Description ──
-        layout.addWidget(self._field_label("Description"))
+        # Description
+        d_layout.addWidget(self._label("Description (optional):"))
         self.desc_input = QTextEdit()
-        self.desc_input.setPlaceholderText(
-            "Optional description of this project..."
-        )
-        self.desc_input.setFixedHeight(80)
+        self.desc_input.setPlaceholderText("Short description...")
+        self.desc_input.setFixedHeight(60)
         if self.is_edit:
-            self.desc_input.setPlainText(
-                self.project.get("description", "")
-            )
-        layout.addWidget(self.desc_input)
+            self.desc_input.setPlainText(self.project.get("description", ""))
+        d_layout.addWidget(self.desc_input)
 
-        # ── Storage mode ──
-        layout.addWidget(self._field_label("File Storage Mode"))
+        layout.addWidget(details_group)
+
+        # Options
+        options_group = QGroupBox("Options")
+        o_layout = QVBoxLayout(options_group)
+        o_layout.setSpacing(8)
+        o_layout.setContentsMargins(10, 14, 10, 10)
+
+        # Storage mode
+        o_layout.addWidget(self._label("File storage mode:"))
         self.storage_combo = QComboBox()
-        self.storage_combo.setFixedHeight(38)
         self.storage_combo.addItem(
-            "📌  Reference original files (saves disk space)",
-            "reference",
+            "Reference original files (saves disk space)", "reference"
         )
         self.storage_combo.addItem(
-            "📋  Copy files into app folder (portable)",
-            "copy",
+            "Copy files into app folder (portable)", "copy"
         )
         if self.is_edit:
             mode = self.project.get("storage_mode", "reference")
-            idx  = 0 if mode == "reference" else 1
+            idx = 0 if mode == "reference" else 1
             self.storage_combo.setCurrentIndex(idx)
-        layout.addWidget(self.storage_combo)
+        o_layout.addWidget(self.storage_combo)
 
-        # Storage hint
-        self.storage_hint = QLabel(
-            "💡 Reference: files stay in place. "
-            "Copy: app keeps its own copy."
-        )
-        self.storage_hint.setWordWrap(True)
-        self.storage_hint.setStyleSheet(
-            "font-size: 11px; background: transparent;"
-        )
-        layout.addWidget(self.storage_hint)
-
-        # ── Similarity threshold ──
-        layout.addWidget(
-            self._field_label("Text Similarity Threshold")
-        )
+        # Threshold slider
+        o_layout.addWidget(self._label("Text similarity threshold:"))
 
         slider_row = QHBoxLayout()
-        slider_row.setSpacing(12)
+        slider_row.setSpacing(6)
 
-        self.threshold_slider = QSlider(
-            Qt.Orientation.Horizontal
-        )
+        self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.threshold_slider.setRange(50, 100)
-        self.threshold_slider.setTickInterval(5)
-        self.threshold_slider.setPageStep(5)
 
         default_val = int(
             self.project.get("similarity_threshold", 0.70) * 100
@@ -133,13 +100,10 @@ class ProjectDialog(QDialog):
         self.threshold_slider.setValue(default_val)
 
         self.threshold_lbl = QLabel(f"{default_val}%")
-        self.threshold_lbl.setFixedWidth(40)
-        self.threshold_lbl.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
+        self.threshold_lbl.setFixedWidth(36)
+        self.threshold_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.threshold_lbl.setStyleSheet(
-            "font-size: 13px; font-weight: 700;"
-            "color: #4A9EFF; background: transparent;"
+            "font-weight: 700; background: transparent; border: 0px;"
         )
 
         self.threshold_slider.valueChanged.connect(
@@ -150,381 +114,166 @@ class ProjectDialog(QDialog):
         slider_row.addWidget(self.threshold_slider, 1)
         slider_row.addWidget(QLabel("100%"))
         slider_row.addWidget(self.threshold_lbl)
-        layout.addLayout(slider_row)
+        o_layout.addLayout(slider_row)
 
         hint = QLabel(
-            "💡 Lower = catch more similarities. "
-            "Higher = only near-identical matches."
+            "Lower = more matches found. Higher = only near-identical."
         )
-        hint.setWordWrap(True)
         hint.setStyleSheet(
-            "font-size: 11px; background: transparent;"
+            "font-size: 11px; color: #767676;"
+            "background: transparent; border: 0px;"
         )
-        layout.addWidget(hint)
+        o_layout.addWidget(hint)
 
-        # ── Buttons ──
+        layout.addWidget(options_group)
+
+        # Buttons
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(6)
+        btn_row.addStretch()
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setProperty("class", "ghost")
-        cancel_btn.setFixedHeight(38)
+        cancel_btn.setMinimumWidth(80)
         cancel_btn.clicked.connect(self.reject)
 
         self.save_btn = QPushButton(
-            "💾 Save Changes" if self.is_edit
-            else "➕ Create Project"
+            "Save Changes" if self.is_edit else "Create Project"
         )
-        self.save_btn.setFixedHeight(38)
+        self.save_btn.setProperty("class", "accent")
+        self.save_btn.setMinimumWidth(120)
         self.save_btn.clicked.connect(self._on_save)
 
-        btn_row.addStretch()
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(self.save_btn)
         layout.addLayout(btn_row)
 
-    def _field_label(self, text: str) -> QLabel:
+    def _label(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            "font-size: 12px; font-weight: 600;"
-            "background: transparent;"
+            "font-size: 12px; background: transparent; border: 0px;"
         )
         return lbl
 
     def _on_save(self):
-        name = self.name_input.text().strip()
-        if not name:
-            QMessageBox.warning(
-                self, "Validation",
-                "Project name is required."
-            )
+        if not self.name_input.text().strip():
+            QMessageBox.warning(self, "Validation", "Project name is required.")
             self.name_input.setFocus()
             return
-
         self.accept()
 
     def get_data(self) -> dict:
-        """Return form values as dict"""
         return {
             "name": self.name_input.text().strip(),
             "description": self.desc_input.toPlainText().strip(),
             "storage_mode": self.storage_combo.currentData(),
-            "similarity_threshold": (
-                self.threshold_slider.value() / 100.0
-            ),
+            "similarity_threshold": self.threshold_slider.value() / 100.0,
         }
-
-    def _apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {c['bg_primary']};
-                color: {c['text_primary']};
-            }}
-            QLabel {{
-                color: {c['text_primary']};
-                background: transparent;
-            }}
-        """)
-        self.storage_hint.setStyleSheet(
-            f"font-size: 11px; color: {c['text_muted']};"
-            f"background: transparent;"
-        )
-
-
-# ─────────────────────────────────────────────
-#  PROJECT CARD
-# ─────────────────────────────────────────────
-class ProjectCard(QFrame):
-    """Card widget representing one project"""
-
-    open_clicked   = pyqtSignal(int)
-    edit_clicked   = pyqtSignal(int)
-    delete_clicked = pyqtSignal(int)
-
-    def __init__(self, project: dict, parent=None):
-        super().__init__(parent)
-        self.project    = project
-        self.project_id = project["id"]
-        self.setProperty("class", "card")
-        self.setFixedHeight(148)
-        self._build()
-        ThemeManager.add_listener(self.apply_theme)
-
-    def _build(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(8)
-
-        # ── Top row: name + status ──
-        top = QHBoxLayout()
-        top.setSpacing(10)
-
-        status = self.project.get("status", "idle")
-        dot_color = {
-            "idle":     "#5c6bc0",
-            "scanning": "#ff9800",
-            "done":     "#4caf50",
-            "error":    "#f44336",
-        }.get(status, "#5c6bc0")
-
-        dot = QLabel("●")
-        dot.setFixedWidth(14)
-        dot.setStyleSheet(
-            f"font-size: 10px; color: {dot_color};"
-            f"background: transparent;"
-        )
-
-        self.name_lbl = QLabel(
-            self.project.get("name", "Unnamed")
-        )
-        self.name_lbl.setStyleSheet(
-            "font-size: 14px; font-weight: 700;"
-            "background: transparent;"
-        )
-
-        badge_text = {
-            "idle":     "Idle",
-            "scanning": "Scanning",
-            "done":     "Done",
-            "error":    "Error",
-        }.get(status, status.capitalize())
-
-        badge = QLabel(badge_text)
-        badge.setStyleSheet(f"""
-            QLabel {{
-                background-color: {dot_color}22;
-                color: {dot_color};
-                border: 1px solid {dot_color}55;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 2px 8px;
-            }}
-        """)
-
-        top.addWidget(dot)
-        top.addWidget(self.name_lbl, 1)
-        top.addWidget(badge)
-        layout.addLayout(top)
-
-        # ── Description ──
-        desc = self.project.get("description", "") or ""
-        self.desc_lbl = QLabel(
-            desc if desc else "No description"
-        )
-        self.desc_lbl.setWordWrap(True)
-        self.desc_lbl.setMaximumHeight(36)
-        self.desc_lbl.setStyleSheet(
-            "font-size: 12px; background: transparent;"
-        )
-        layout.addWidget(self.desc_lbl)
-
-        # ── Meta row ──
-        meta = QHBoxLayout()
-        meta.setSpacing(16)
-
-        file_count = self.project.get("file_count", 0)
-        threshold  = int(
-            self.project.get("similarity_threshold", 0.70) * 100
-        )
-        updated    = self.project.get("updated_at", "")[:10]
-        mode       = self.project.get("storage_mode", "reference")
-        mode_icon  = "📌" if mode == "reference" else "📋"
-
-        for icon, text in [
-            ("📄", f"{file_count} files"),
-            ("🎯", f"{threshold}% threshold"),
-            (mode_icon, mode.capitalize()),
-            ("🕒", updated),
-        ]:
-            chip = QLabel(f"{icon} {text}")
-            chip.setStyleSheet(
-                "font-size: 11px; background: transparent;"
-            )
-            meta.addWidget(chip)
-
-        meta.addStretch()
-        layout.addLayout(meta)
-
-        # ── Action buttons ──
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-        btn_row.addStretch()
-
-        open_btn = QPushButton("🔍 Open")
-        open_btn.setFixedHeight(30)
-        open_btn.setFixedWidth(90)
-        open_btn.clicked.connect(
-            lambda: self.open_clicked.emit(self.project_id)
-        )
-
-        edit_btn = QPushButton("✏️ Edit")
-        edit_btn.setProperty("class", "ghost")
-        edit_btn.setFixedHeight(30)
-        edit_btn.setFixedWidth(80)
-        edit_btn.clicked.connect(
-            lambda: self.edit_clicked.emit(self.project_id)
-        )
-
-        del_btn = QPushButton("🗑️")
-        del_btn.setProperty("class", "danger")
-        del_btn.setFixedHeight(30)
-        del_btn.setFixedWidth(40)
-        del_btn.setToolTip("Delete project")
-        del_btn.clicked.connect(
-            lambda: self.delete_clicked.emit(self.project_id)
-        )
-
-        btn_row.addWidget(open_btn)
-        btn_row.addWidget(edit_btn)
-        btn_row.addWidget(del_btn)
-        layout.addLayout(btn_row)
-
-        self.apply_theme()
-
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {c['bg_card']};
-                border: 1px solid {c['border']};
-                border-radius: 10px;
-            }}
-            QFrame:hover {{
-                border-color: {c['accent']};
-            }}
-        """)
-        self.name_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: 700;"
-            f"color: {c['text_primary']}; background: transparent;"
-        )
-        self.desc_lbl.setStyleSheet(
-            f"font-size: 12px; color: {c['text_muted']};"
-            f"background: transparent;"
-        )
 
 
 # ─────────────────────────────────────────────
 #  PROJECTS PAGE
 # ─────────────────────────────────────────────
 class ProjectsPage(QWidget):
-    """
-    Page 1 — Projects
-    Full CRUD: create, read, update, delete projects
-    """
-
-    open_analysis   = pyqtSignal(int)
+    open_analysis = pyqtSignal(int)
     project_created = pyqtSignal(int)
+
+    COLUMNS = ["Name", "Files", "Threshold", "Status", "Updated", "Actions"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._projects: list = []
-        self._search_text    = ""
+        self._projects = []
+        self._search_text = ""
         self._build()
         ThemeManager.add_listener(self.apply_theme)
 
     def _build(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setSpacing(10)
 
-        # ── Toolbar ──
-        toolbar = QFrame()
-        toolbar.setFixedHeight(64)
-        tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(28, 0, 28, 0)
-        tb_layout.setSpacing(12)
+        # Toolbar
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
 
-        # Search
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔎  Search projects...")
-        self.search_input.setFixedHeight(36)
-        self.search_input.setMaximumWidth(300)
+        self.search_input.setPlaceholderText("Search projects...")
+        self.search_input.setMaximumWidth(240)
         self.search_input.textChanged.connect(self._on_search)
 
-        tb_layout.addWidget(self.search_input)
-        tb_layout.addStretch()
+        toolbar.addWidget(self.search_input)
+        toolbar.addStretch()
 
-        # New project button
-        self.new_btn = QPushButton("➕  New Project")
-        self.new_btn.setFixedHeight(36)
+        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn.setMinimumWidth(80)
+        self.refresh_btn.clicked.connect(self.refresh)
+        toolbar.addWidget(self.refresh_btn)
+
+        self.new_btn = QPushButton("New Project")
+        self.new_btn.setProperty("class", "accent")
+        self.new_btn.setMinimumWidth(120)
         self.new_btn.clicked.connect(self._on_create)
-        tb_layout.addWidget(self.new_btn)
+        toolbar.addWidget(self.new_btn)
 
-        outer.addWidget(toolbar)
+        outer.addLayout(toolbar)
 
-        # Divider
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setProperty("class", "divider")
-        outer.addWidget(div)
-
-        # ── Scroll area for cards ──
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-
-        self.content_widget = QWidget()
-        self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(28, 20, 28, 28)
-        self.content_layout.setSpacing(0)
-
-        # Loading label
+        # Loading
         self.loading_lbl = LoadingLabel("Loading projects...")
-        self.loading_lbl.setFixedHeight(60)
+        self.loading_lbl.setFixedHeight(24)
         self.loading_lbl.setVisible(False)
-        self.content_layout.addWidget(self.loading_lbl)
+        outer.addWidget(self.loading_lbl)
 
-        # Stats row
-        self.stats_lbl = QLabel("")
+        # Stats label
+        self.stats_lbl = QLabel("0 projects")
         self.stats_lbl.setStyleSheet(
-            "font-size: 12px; background: transparent;"
-            "padding-bottom: 12px;"
+            "font-size: 11px; background: transparent; border: 0px;"
         )
-        self.content_layout.addWidget(self.stats_lbl)
+        outer.addWidget(self.stats_lbl)
 
-        # Grid for cards
-        self.grid_layout = QGridLayout()
-        self.grid_layout.setSpacing(14)
-        self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.content_layout.addLayout(self.grid_layout)
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
+
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+
+        self.table.setColumnWidth(1, 60)
+        self.table.setColumnWidth(2, 80)
+        self.table.setColumnWidth(3, 80)
+        self.table.setColumnWidth(4, 100)
+        self.table.setColumnWidth(5, 200)
+
+        outer.addWidget(self.table, 1)
 
         # Empty state
         self.empty_state = EmptyState(
-            icon     = "📁",
-            title    = "No projects yet",
-            message  = (
-                "Create your first project to start finding "
-                "similar content across your files."
-            ),
-            btn_text = "➕ Create First Project",
+            title="No projects yet",
+            message="Create your first project to start finding similar content.",
+            btn_text="Create Project",
         )
         self.empty_state.action_clicked.connect(self._on_create)
         self.empty_state.setVisible(False)
-        self.content_layout.addWidget(self.empty_state)
-
-        self.content_layout.addStretch()
-        scroll.setWidget(self.content_widget)
-        outer.addWidget(scroll, 1)
+        outer.addWidget(self.empty_state)
 
         self.apply_theme()
 
-    # ─────────────────────────────────────────
-    #  DATA
-    # ─────────────────────────────────────────
     def refresh(self):
-        """Reload projects from DB"""
         self._show_loading(True)
-        QTimer.singleShot(80, self._load_data)
+        QTimer.singleShot(60, self._load_data)
 
     def _load_data(self):
         try:
             self._projects = get_all_projects()
-            self._render_projects()
+            self._render_table()
         except Exception as e:
             print(f"Projects load error: {e}")
         finally:
@@ -540,43 +289,93 @@ class ProjectsPage(QWidget):
             or q in p.get("description", "").lower()
         ]
 
-    def _render_projects(self):
-        # Clear grid
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
+    def _render_table(self):
         filtered = self._filtered_projects()
 
-        # Stats label
         total = len(self._projects)
         shown = len(filtered)
         if self._search_text:
-            self.stats_lbl.setText(
-                f"Showing {shown} of {total} projects"
-            )
+            self.stats_lbl.setText(f"Showing {shown} of {total} projects")
         else:
-            self.stats_lbl.setText(
-                f"{total} project{'s' if total != 1 else ''}"
-            )
+            self.stats_lbl.setText(f"{total} project{'s' if total != 1 else ''}")
 
         if not filtered:
+            self.table.setVisible(False)
             self.empty_state.setVisible(True)
             return
 
+        self.table.setVisible(True)
         self.empty_state.setVisible(False)
 
-        # 2-column grid
-        cols = 2
-        for i, proj in enumerate(filtered):
-            card = ProjectCard(proj)
-            card.open_clicked.connect(self._on_open)
-            card.edit_clicked.connect(self._on_edit)
-            card.delete_clicked.connect(self._on_delete)
-            self.grid_layout.addWidget(
-                card, i // cols, i % cols
-            )
+        self.table.setRowCount(0)
+        for proj in filtered:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setRowHeight(row, 32)
+
+            pid = proj["id"]
+
+            # Name
+            name_item = QTableWidgetItem(proj.get("name", ""))
+            self.table.setItem(row, 0, name_item)
+
+            # Files
+            fc = QTableWidgetItem(str(proj.get("file_count", 0)))
+            fc.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 1, fc)
+
+            # Threshold
+            pct = int(proj.get("similarity_threshold", 0.70) * 100)
+            th = QTableWidgetItem(f"{pct}%")
+            th.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 2, th)
+
+            # Status
+            status = proj.get("status", "idle").capitalize()
+            st = QTableWidgetItem(status)
+            st.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            color = {
+                "Idle":     "#767676",
+                "Scanning": "#ca5010",
+                "Done":     "#107c10",
+                "Error":    "#a80000",
+            }.get(status, "#767676")
+            st.setForeground(QColor(color))
+            self.table.setItem(row, 3, st)
+
+            # Updated
+            up = QTableWidgetItem(proj.get("updated_at", "")[:10])
+            up.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 4, up)
+
+            # Actions
+            actions_w = QWidget()
+            act_layout = QHBoxLayout(actions_w)
+            act_layout.setContentsMargins(4, 2, 4, 2)
+            act_layout.setSpacing(4)
+
+            open_btn = QPushButton("Open")
+            open_btn.setFixedHeight(24)
+            open_btn.setFixedWidth(50)
+            open_btn.clicked.connect(lambda _, p=pid: self._on_open(p))
+
+            edit_btn = QPushButton("Edit")
+            edit_btn.setFixedHeight(24)
+            edit_btn.setFixedWidth(50)
+            edit_btn.clicked.connect(lambda _, p=pid: self._on_edit(p))
+
+            del_btn = QPushButton("Delete")
+            del_btn.setProperty("class", "danger")
+            del_btn.setFixedHeight(24)
+            del_btn.setFixedWidth(60)
+            del_btn.clicked.connect(lambda _, p=pid: self._on_delete(p))
+
+            act_layout.addWidget(open_btn)
+            act_layout.addWidget(edit_btn)
+            act_layout.addWidget(del_btn)
+            act_layout.addStretch()
+
+            self.table.setCellWidget(row, 5, actions_w)
 
     def _show_loading(self, show: bool):
         self.loading_lbl.setVisible(show)
@@ -585,108 +384,64 @@ class ProjectsPage(QWidget):
         else:
             self.loading_lbl.stop()
 
-    # ─────────────────────────────────────────
-    #  CRUD ACTIONS
-    # ─────────────────────────────────────────
     def _on_search(self, text: str):
         self._search_text = text
-        self._render_projects()
+        self._render_table()
 
     def _on_create(self):
         dlg = ProjectDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             data = dlg.get_data()
-            # Optimistic UI: show loading
-            self._show_loading(True)
-
             try:
                 pid = create_project(
-                    name                 = data["name"],
-                    description          = data["description"],
-                    similarity_threshold = data["similarity_threshold"],
-                    storage_mode         = data["storage_mode"],
+                    name=data["name"],
+                    description=data["description"],
+                    similarity_threshold=data["similarity_threshold"],
+                    storage_mode=data["storage_mode"],
                 )
                 self.project_created.emit(pid)
                 self.refresh()
             except Exception as e:
-                self._show_loading(False)
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Failed to create project:\n{e}"
-                )
+                QMessageBox.critical(self, "Error", f"Failed to create project:\n{e}")
 
     def _on_open(self, project_id: int):
         self.open_analysis.emit(project_id)
 
     def _on_edit(self, project_id: int):
-        # Find project data
-        proj = next(
-            (p for p in self._projects if p["id"] == project_id),
-            None,
-        )
+        proj = next((p for p in self._projects if p["id"] == project_id), None)
         if not proj:
             return
-
         dlg = ProjectDialog(self, project=proj)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             data = dlg.get_data()
             try:
-                ok = update_project(
-                    project_id           = project_id,
-                    name                 = data["name"],
-                    description          = data["description"],
-                    similarity_threshold = data["similarity_threshold"],
-                    storage_mode         = data["storage_mode"],
+                update_project(
+                    project_id=project_id,
+                    name=data["name"],
+                    description=data["description"],
+                    similarity_threshold=data["similarity_threshold"],
+                    storage_mode=data["storage_mode"],
                 )
-                if ok:
-                    self.refresh()
-                else:
-                    QMessageBox.warning(
-                        self, "Warning",
-                        "Project not found or not updated."
-                    )
+                self.refresh()
             except Exception as e:
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Failed to update project:\n{e}"
-                )
+                QMessageBox.critical(self, "Error", f"Failed to update:\n{e}")
 
     def _on_delete(self, project_id: int):
-        proj = next(
-            (p for p in self._projects if p["id"] == project_id),
-            None,
-        )
+        proj = next((p for p in self._projects if p["id"] == project_id), None)
         name = proj.get("name", "this project") if proj else "this project"
 
         reply = QMessageBox.question(
-            self,
-            "Delete Project",
-            f"Are you sure you want to delete\n\"{name}\"?\n\n"
-            "This will remove all files, results, and analysis "
-            "data. This cannot be undone.",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No,
+            self, "Delete Project",
+            f"Delete \"{name}\"?\n\nAll files, results, and data will be removed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-
         if reply == QMessageBox.StandardButton.Yes:
-            self._show_loading(True)
             try:
-                ok = delete_project(project_id)
-                if ok:
-                    self.refresh()
-                else:
-                    self._show_loading(False)
-                    QMessageBox.warning(
-                        self, "Warning",
-                        "Project could not be deleted."
-                    )
+                delete_project(project_id)
+                self.refresh()
             except Exception as e:
-                self._show_loading(False)
-                QMessageBox.critical(
-                    self, "Error",
-                    f"Failed to delete project:\n{e}"
-                )
+                QMessageBox.critical(self, "Error", f"Failed to delete:\n{e}")
 
     def apply_theme(self):
         c = ThemeManager.colors()
@@ -694,6 +449,6 @@ class ProjectsPage(QWidget):
             f"background-color: {c['bg_primary']};"
         )
         self.stats_lbl.setStyleSheet(
-            f"font-size: 12px; color: {c['text_muted']};"
-            f"background: transparent; padding-bottom: 12px;"
+            f"font-size: 11px; color: {c['text_muted']};"
+            f"background: transparent; border: 0px;"
         )

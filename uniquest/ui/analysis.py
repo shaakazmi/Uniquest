@@ -3,17 +3,15 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame,
-    QScrollArea, QProgressBar,
+    QScrollArea, QProgressBar, QGroupBox,
     QFileDialog, QMessageBox,
     QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView,
-    QSizePolicy, QSplitter,
+    QRadioButton, QButtonGroup,
     QTextEdit, QComboBox,
 )
-from PyQt6.QtCore import (
-    Qt, pyqtSignal, QTimer, QThread,
-)
-from PyQt6.QtGui import QColor, QFont, QIcon
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QColor
 
 from utils.theme import ThemeManager
 from core.processor import (
@@ -30,154 +28,166 @@ from ui.dashboard import EmptyState, LoadingLabel
 
 
 # ─────────────────────────────────────────────
-#  FILE TYPE ICON MAP
+#  SCAN MODE SELECTOR (single vs multiple)
 # ─────────────────────────────────────────────
-FILE_ICONS = {
-    "pdf":  "📕",
-    "docx": "📘", "doc": "📘",
-    "txt":  "📄", "rtf": "📄",
-    "xlsx": "📗", "xls": "📗", "csv": "📊",
-    "pptx": "📙", "ppt": "📙",
-    "jpg":  "🖼️", "jpeg": "🖼️",
-    "png":  "🖼️", "bmp": "🖼️",
-    "tiff": "🖼️", "tif": "🖼️",
-    "webp": "🖼️", "gif": "🖼️",
-    "svg":  "🖼️",
-}
+class ScanModeSelector(QGroupBox):
+    """Rufus-style scan mode selector"""
 
-STATUS_ICONS = {
-    "pending":    "⏳",
-    "processing": "⚙️",
-    "done":       "✅",
-    "error":      "❌",
-}
-
-
-# ─────────────────────────────────────────────
-#  DROP ZONE
-# ─────────────────────────────────────────────
-class DropZone(QFrame):
-    """
-    Drag-and-drop zone for importing files.
-    Also has a browse button.
-    """
-
-    files_dropped = pyqtSignal(list)   # list of file paths
+    mode_changed = pyqtSignal(str)  # "single" or "multiple"
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAcceptDrops(True)
-        self.setFixedHeight(160)
+        super().__init__("Scan Mode", parent)
+        self._mode = "single"
         self._build()
-        ThemeManager.add_listener(self.apply_theme)
-        self.apply_theme()
+
+    def _build(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 14, 10, 10)
+        layout.setSpacing(20)
+
+        self.btn_group = QButtonGroup(self)
+
+        self.radio_single = QRadioButton("Single file (find duplicates within one file)")
+        self.radio_single.setChecked(True)
+        self.radio_single.toggled.connect(
+            lambda checked: self._on_toggle("single") if checked else None
+        )
+
+        self.radio_multi = QRadioButton("Multiple files (compare across files)")
+        self.radio_multi.toggled.connect(
+            lambda checked: self._on_toggle("multiple") if checked else None
+        )
+
+        self.btn_group.addButton(self.radio_single, 0)
+        self.btn_group.addButton(self.radio_multi, 1)
+
+        layout.addWidget(self.radio_single)
+        layout.addWidget(self.radio_multi)
+        layout.addStretch()
+
+    def _on_toggle(self, mode: str):
+        self._mode = mode
+        self.mode_changed.emit(mode)
+
+    def get_mode(self) -> str:
+        return self._mode
+
+    def set_mode(self, mode: str):
+        if mode == "single":
+            self.radio_single.setChecked(True)
+        else:
+            self.radio_multi.setChecked(True)
+
+
+# ─────────────────────────────────────────────
+#  FILE IMPORT PANEL
+# ─────────────────────────────────────────────
+class FileImportPanel(QGroupBox):
+    files_dropped = pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super().__init__("Import Files", parent)
+        self.setAcceptDrops(True)
+        self._mode = "single"
+        self._build()
 
     def _build(self):
         layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(10)
+        layout.setContentsMargins(10, 14, 10, 10)
+        layout.setSpacing(8)
 
-        self.icon_lbl = QLabel("📂")
-        self.icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icon_lbl.setStyleSheet(
-            "font-size: 36px; background: transparent;"
+        # Info label
+        self.info_lbl = QLabel(
+            "Select ONE file to find duplicate content within it."
         )
+        self.info_lbl.setStyleSheet(
+            "font-size: 11px; background: transparent; border: 0px;"
+        )
+        layout.addWidget(self.info_lbl)
 
-        self.main_lbl = QLabel(
-            "Drag & Drop files here"
-        )
-        self.main_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.main_lbl.setStyleSheet(
-            "font-size: 14px; font-weight: 600;"
-            "background: transparent;"
-        )
-
-        self.sub_lbl = QLabel(
-            "PDF, DOCX, XLSX, CSV, PPTX, JPG, PNG and more"
-        )
-        self.sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.sub_lbl.setStyleSheet(
-            "font-size: 12px; background: transparent;"
-        )
-
+        # Button row
         btn_row = QHBoxLayout()
-        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(6)
 
-        self.browse_btn = QPushButton("📁  Browse Files")
-        self.browse_btn.setFixedHeight(34)
-        self.browse_btn.setFixedWidth(150)
-        self.browse_btn.clicked.connect(self._on_browse_files)
+        self.browse_file_btn = QPushButton("Browse File...")
+        self.browse_file_btn.setMinimumWidth(120)
+        self.browse_file_btn.clicked.connect(self._on_browse_file)
 
-        self.browse_folder_btn = QPushButton("📂  Browse Folder")
-        self.browse_folder_btn.setProperty("class", "ghost")
-        self.browse_folder_btn.setFixedHeight(34)
-        self.browse_folder_btn.setFixedWidth(160)
-        self.browse_folder_btn.clicked.connect(
-            self._on_browse_folder
+        self.browse_folder_btn = QPushButton("Browse Folder...")
+        self.browse_folder_btn.setMinimumWidth(120)
+        self.browse_folder_btn.clicked.connect(self._on_browse_folder)
+        self.browse_folder_btn.setVisible(False)
+
+        self.drop_hint = QLabel("or drag files here")
+        self.drop_hint.setStyleSheet(
+            "font-size: 11px; color: #767676;"
+            "background: transparent; border: 0px;"
         )
 
-        btn_row.addWidget(self.browse_btn)
+        btn_row.addWidget(self.browse_file_btn)
         btn_row.addWidget(self.browse_folder_btn)
+        btn_row.addWidget(self.drop_hint)
+        btn_row.addStretch()
 
-        layout.addWidget(self.icon_lbl)
-        layout.addWidget(self.main_lbl)
-        layout.addWidget(self.sub_lbl)
         layout.addLayout(btn_row)
 
-    def _on_browse_files(self):
-        ext_list = " ".join(
-            f"*.{e}" for e in SUPPORTED_EXTENSIONS
-        )
-        paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select Files",
-            str(Path.home()),
-            f"Supported Files ({ext_list});;All Files (*)",
-        )
-        if paths:
-            self.files_dropped.emit(paths)
+    def set_mode(self, mode: str):
+        self._mode = mode
+        if mode == "single":
+            self.info_lbl.setText(
+                "Select ONE file to find duplicate content within it."
+            )
+            self.browse_file_btn.setText("Browse File...")
+            self.browse_folder_btn.setVisible(False)
+        else:
+            self.info_lbl.setText(
+                "Select MULTIPLE files or a folder to compare content across files."
+            )
+            self.browse_file_btn.setText("Browse Files...")
+            self.browse_folder_btn.setVisible(True)
+
+    def _on_browse_file(self):
+        ext_list = " ".join(f"*.{e}" for e in SUPPORTED_EXTENSIONS)
+        if self._mode == "single":
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Select File", str(Path.home()),
+                f"Supported Files ({ext_list});;All Files (*)",
+            )
+            if path:
+                self.files_dropped.emit([path])
+        else:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self, "Select Files", str(Path.home()),
+                f"Supported Files ({ext_list});;All Files (*)",
+            )
+            if paths:
+                self.files_dropped.emit(paths)
 
     def _on_browse_folder(self):
         folder = QFileDialog.getExistingDirectory(
-            self,
-            "Select Folder",
-            str(Path.home()),
+            self, "Select Folder", str(Path.home()),
         )
         if folder:
-            # Collect all supported files in folder
             found = []
             for root, dirs, files in os.walk(folder):
                 for fname in files:
                     ext = fname.rsplit(".", 1)[-1].lower()
                     if ext in SUPPORTED_EXTENSIONS:
-                        found.append(
-                            os.path.join(root, fname)
-                        )
+                        found.append(os.path.join(root, fname))
             if found:
                 self.files_dropped.emit(found)
             else:
                 QMessageBox.information(
-                    self,
-                    "No Files Found",
-                    "No supported files were found in "
-                    "the selected folder.",
+                    self, "No Files Found",
+                    "No supported files found in that folder."
                 )
 
-    # ── Drag & Drop ──
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self._set_drag_active(True)
-        else:
-            event.ignore()
-
-    def dragLeaveEvent(self, event):
-        self._set_drag_active(False)
 
     def dropEvent(self, event):
-        self._set_drag_active(False)
-        urls  = event.mimeData().urls()
+        urls = event.mimeData().urls()
         paths = []
         for url in urls:
             path = url.toLocalFile()
@@ -190,127 +200,77 @@ class DropZone(QFrame):
                     for fname in files:
                         ext = fname.rsplit(".", 1)[-1].lower()
                         if ext in SUPPORTED_EXTENSIONS:
-                            paths.append(
-                                os.path.join(root, fname)
-                            )
-        if paths:
-            self.files_dropped.emit(paths)
-        elif urls:
+                            paths.append(os.path.join(root, fname))
+
+        # Enforce single-file mode
+        if self._mode == "single" and len(paths) > 1:
+            paths = [paths[0]]
             QMessageBox.information(
-                self,
-                "Unsupported Files",
-                "None of the dropped files are supported.\n\n"
-                "Supported: PDF, DOCX, XLSX, CSV, "
-                "PPTX, JPG, PNG, and more.",
+                self, "Single File Mode",
+                "In Single File mode, only the first file was added.\n"
+                "Switch to Multiple Files mode to add more."
             )
 
-    def _set_drag_active(self, active: bool):
-        c = ThemeManager.colors()
-        if active:
-            self.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {c['accent']}18;
-                    border: 2px dashed {c['accent']};
-                    border-radius: 10px;
-                }}
-            """)
-        else:
-            self.apply_theme()
-
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {c['bg_card']};
-                border: 2px dashed {c['border']};
-                border-radius: 10px;
-            }}
-            QFrame:hover {{
-                border-color: {c['accent']};
-                background-color: {c['bg_hover']};
-            }}
-        """)
-        self.main_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: 600;"
-            f"color: {c['text_primary']}; background: transparent;"
-        )
-        self.sub_lbl.setStyleSheet(
-            f"font-size: 12px; color: {c['text_muted']};"
-            f"background: transparent;"
-        )
+        if paths:
+            self.files_dropped.emit(paths)
 
 
 # ─────────────────────────────────────────────
 #  PROGRESS PANEL
 # ─────────────────────────────────────────────
-class ProgressPanel(QFrame):
-    """Shows analysis progress"""
-
+class ProgressPanel(QGroupBox):
     cancel_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setProperty("class", "card")
+        super().__init__("Progress", parent)
         self.setVisible(False)
         self._build()
-        ThemeManager.add_listener(self.apply_theme)
 
     def _build(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(10, 14, 10, 10)
+        layout.setSpacing(6)
 
-        # Header row
         header = QHBoxLayout()
-
-        self.stage_lbl = QLabel("🔍 Analyzing...")
+        self.stage_lbl = QLabel("Analyzing...")
         self.stage_lbl.setStyleSheet(
-            "font-size: 14px; font-weight: 700;"
-            "background: transparent;"
+            "font-size: 12px; font-weight: 600;"
+            "background: transparent; border: 0px;"
         )
-
-        self.cancel_btn = QPushButton("✕ Cancel")
-        self.cancel_btn.setProperty("class", "danger")
-        self.cancel_btn.setFixedHeight(28)
-        self.cancel_btn.setFixedWidth(90)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setFixedWidth(80)
+        self.cancel_btn.setFixedHeight(24)
         self.cancel_btn.clicked.connect(self.cancel_clicked)
-
         header.addWidget(self.stage_lbl)
         header.addStretch()
         header.addWidget(self.cancel_btn)
         layout.addLayout(header)
 
-        # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(8)
         layout.addWidget(self.progress_bar)
 
-        # Message
         self.msg_lbl = QLabel("Starting...")
         self.msg_lbl.setStyleSheet(
-            "font-size: 12px; background: transparent;"
+            "font-size: 11px; background: transparent; border: 0px;"
         )
         layout.addWidget(self.msg_lbl)
 
-        # Log box
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setFixedHeight(120)
+        self.log_box.setFixedHeight(80)
         self.log_box.setStyleSheet(
-            "font-family: 'Consolas', monospace; font-size: 11px;"
+            "font-family: 'Consolas', monospace; font-size: 10px;"
         )
         layout.addWidget(self.log_box)
-
-        self.apply_theme()
 
     def start(self):
         self.setVisible(True)
         self.progress_bar.setValue(0)
         self.log_box.clear()
-        self.msg_lbl.setText("Starting analysis...")
-        self.stage_lbl.setText("🔍 Analyzing...")
+        self.msg_lbl.setText("Starting...")
+        self.stage_lbl.setText("Analyzing...")
         self.cancel_btn.setEnabled(True)
 
     def stop(self):
@@ -321,203 +281,101 @@ class ProgressPanel(QFrame):
         self.msg_lbl.setText(msg)
 
     def update_stage(self, stage: str):
-        self.stage_lbl.setText(f"🔍 {stage}")
+        self.stage_lbl.setText(stage)
 
     def append_log(self, msg: str):
         self.log_box.append(msg)
-        # Auto scroll to bottom
         sb = self.log_box.verticalScrollBar()
         sb.setValue(sb.maximum())
-
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {c['bg_card']};
-                border: 1px solid {c['border']};
-                border-radius: 10px;
-            }}
-        """)
-        self.stage_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: 700;"
-            f"color: {c['text_primary']}; background: transparent;"
-        )
-        self.msg_lbl.setStyleSheet(
-            f"font-size: 12px; color: {c['text_muted']};"
-            f"background: transparent;"
-        )
-        self.log_box.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {c['bg_input']};
-                color: {c['text_secondary']};
-                border: 1px solid {c['border']};
-                border-radius: 6px;
-                font-family: 'Consolas', monospace;
-                font-size: 11px;
-            }}
-        """)
 
 
 # ─────────────────────────────────────────────
 #  FILE TABLE
 # ─────────────────────────────────────────────
 class FileTable(QTableWidget):
-    """Table showing files in current project"""
+    remove_file = pyqtSignal(int)
 
-    remove_file = pyqtSignal(int)   # file_id
-
-    COLUMNS = ["", "File Name", "Type", "Size", "Status", "Chunks", "Images", ""]
+    COLUMNS = ["File Name", "Type", "Size", "Status", "Chunks", "Images", ""]
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._file_ids: list = []
+        self._file_ids = []
         self._setup()
-        ThemeManager.add_listener(self.apply_theme)
 
     def _setup(self):
         self.setColumnCount(len(self.COLUMNS))
         self.setHorizontalHeaderLabels(self.COLUMNS)
-        self.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers
-        )
-        self.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        self.setAlternatingRowColors(False)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.verticalHeader().setVisible(False)
         self.setShowGrid(False)
 
         hdr = self.horizontalHeader()
-        hdr.setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Fixed
-        )          # icon
-        hdr.setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )         # name
-        hdr.setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Fixed
-        )          # type
-        hdr.setSectionResizeMode(
-            3, QHeaderView.ResizeMode.Fixed
-        )          # size
-        hdr.setSectionResizeMode(
-            4, QHeaderView.ResizeMode.Fixed
-        )          # status
-        hdr.setSectionResizeMode(
-            5, QHeaderView.ResizeMode.Fixed
-        )          # chunks
-        hdr.setSectionResizeMode(
-            6, QHeaderView.ResizeMode.Fixed
-        )          # images
-        hdr.setSectionResizeMode(
-            7, QHeaderView.ResizeMode.Fixed
-        )          # delete btn
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
 
-        self.setColumnWidth(0, 34)
-        self.setColumnWidth(2, 60)
+        self.setColumnWidth(1, 60)
+        self.setColumnWidth(2, 70)
         self.setColumnWidth(3, 80)
-        self.setColumnWidth(4, 90)
-        self.setColumnWidth(5, 70)
-        self.setColumnWidth(6, 70)
-        self.setColumnWidth(7, 36)
-        self.setRowHeight(0, 40)
-
-        self.apply_theme()
+        self.setColumnWidth(4, 60)
+        self.setColumnWidth(5, 60)
+        self.setColumnWidth(6, 60)
 
     def load_files(self, files: list):
-        """Populate table with file data"""
         self._file_ids = []
         self.setRowCount(0)
 
         for f in files:
             row = self.rowCount()
             self.insertRow(row)
-            self.setRowHeight(row, 40)
+            self.setRowHeight(row, 26)
 
-            fid  = f["id"]
-            ext  = f.get("file_type", "").lower()
-            icon = FILE_ICONS.get(ext, "📄")
+            fid = f["id"]
             self._file_ids.append(fid)
 
-            # Col 0: icon
-            icon_item = QTableWidgetItem(icon)
-            icon_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
-            self.setItem(row, 0, icon_item)
+            self.setItem(row, 0, QTableWidgetItem(f.get("file_name", "")))
 
-            # Col 1: name
-            name_item = QTableWidgetItem(
-                f.get("file_name", "")
-            )
-            name_item.setToolTip(
-                f.get("original_path", "")
-            )
-            self.setItem(row, 1, name_item)
+            type_item = QTableWidgetItem(f.get("file_type", "").upper())
+            type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.setItem(row, 1, type_item)
 
-            # Col 2: type
-            type_item = QTableWidgetItem(
-                ext.upper()
-            )
-            type_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
-            self.setItem(row, 2, type_item)
+            size = f.get("file_size", 0)
+            size_str = self._fmt_size(size)
+            size_item = QTableWidgetItem(size_str)
+            size_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.setItem(row, 2, size_item)
 
-            # Col 3: size
-            size_bytes = f.get("file_size", 0)
-            size_str   = self._fmt_size(size_bytes)
-            size_item  = QTableWidgetItem(size_str)
-            size_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
-            self.setItem(row, 3, size_item)
-
-            # Col 4: status
-            status     = f.get("status", "pending")
-            status_ico = STATUS_ICONS.get(status, "⏳")
-            status_item = QTableWidgetItem(
-                f"{status_ico} {status.capitalize()}"
-            )
-            status_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
+            status = f.get("status", "pending").capitalize()
+            st_item = QTableWidgetItem(status)
+            st_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             color = {
-                "pending":    "#5c6bc0",
-                "processing": "#ff9800",
-                "done":       "#4caf50",
-                "error":      "#f44336",
-            }.get(status, "#5c6bc0")
-            status_item.setForeground(QColor(color))
-            self.setItem(row, 4, status_item)
+                "Pending":    "#767676",
+                "Processing": "#ca5010",
+                "Done":       "#107c10",
+                "Error":      "#a80000",
+            }.get(status, "#767676")
+            st_item.setForeground(QColor(color))
+            self.setItem(row, 3, st_item)
 
-            # Col 5: text chunks
-            tc_item = QTableWidgetItem(
-                str(f.get("text_extracted", 0))
-            )
-            tc_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
-            self.setItem(row, 5, tc_item)
+            tc = QTableWidgetItem(str(f.get("text_extracted", 0)))
+            tc.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.setItem(row, 4, tc)
 
-            # Col 6: images
-            ic_item = QTableWidgetItem(
-                str(f.get("images_extracted", 0))
-            )
-            ic_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignCenter
-            )
-            self.setItem(row, 6, ic_item)
+            ic = QTableWidgetItem(str(f.get("images_extracted", 0)))
+            ic.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.setItem(row, 5, ic)
 
-            # Col 7: remove button
-            del_btn = QPushButton("✕")
-            del_btn.setFixedSize(26, 26)
+            del_btn = QPushButton("Remove")
+            del_btn.setFixedHeight(22)
+            del_btn.setFixedWidth(56)
             del_btn.setProperty("class", "danger")
-            del_btn.setToolTip("Remove file from project")
-            del_btn.clicked.connect(
-                lambda _, fid=fid: self.remove_file.emit(fid)
-            )
-            self.setCellWidget(row, 7, del_btn)
+            del_btn.clicked.connect(lambda _, fid=fid: self.remove_file.emit(fid))
+            self.setCellWidget(row, 6, del_btn)
 
     def _fmt_size(self, size: int) -> str:
         for unit in ["B", "KB", "MB", "GB"]:
@@ -526,399 +384,185 @@ class FileTable(QTableWidget):
             size /= 1024
         return f"{size:.1f} GB"
 
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QTableWidget {{
-                background-color: {c['bg_card']};
-                color: {c['text_primary']};
-                border: 1px solid {c['border']};
-                border-radius: 8px;
-                gridline-color: transparent;
-                selection-background-color: {c['bg_selected']};
-            }}
-            QTableWidget::item {{
-                padding: 6px;
-                border-bottom: 1px solid {c['border_light']};
-            }}
-            QTableWidget::item:selected {{
-                background-color: {c['bg_selected']};
-            }}
-            QHeaderView::section {{
-                background-color: {c['bg_input']};
-                color: {c['text_secondary']};
-                font-weight: 600;
-                font-size: 11px;
-                padding: 6px;
-                border: none;
-                border-bottom: 1px solid {c['border']};
-            }}
-        """)
-
-
-# ─────────────────────────────────────────────
-#  PROJECT SELECTOR BAR
-# ─────────────────────────────────────────────
-class ProjectSelectorBar(QFrame):
-    """Top bar showing selected project with switcher"""
-
-    project_changed = pyqtSignal(int)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedHeight(56)
-        self._build()
-        ThemeManager.add_listener(self.apply_theme)
-
-    def _build(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(28, 0, 28, 0)
-        layout.setSpacing(14)
-
-        lbl = QLabel("Active Project:")
-        lbl.setStyleSheet(
-            "font-size: 12px; font-weight: 600;"
-            "background: transparent;"
-        )
-
-        self.project_combo = QComboBox()
-        self.project_combo.setFixedHeight(34)
-        self.project_combo.setMinimumWidth(280)
-        self.project_combo.currentIndexChanged.connect(
-            self._on_changed
-        )
-
-        layout.addWidget(lbl)
-        layout.addWidget(self.project_combo)
-        layout.addStretch()
-
-        self.apply_theme()
-
-    def load_projects(self, projects: list, selected_id: int = None):
-        self.project_combo.blockSignals(True)
-        self.project_combo.clear()
-
-        if not projects:
-            self.project_combo.addItem(
-                "No projects — create one first", -1
-            )
-            self.project_combo.blockSignals(False)
-            return
-
-        for p in projects:
-            self.project_combo.addItem(
-                f"📁  {p['name']}  ({p['file_count']} files)",
-                p["id"],
-            )
-
-        # Select the active project
-        if selected_id:
-            for i in range(self.project_combo.count()):
-                if self.project_combo.itemData(i) == selected_id:
-                    self.project_combo.setCurrentIndex(i)
-                    break
-
-        self.project_combo.blockSignals(False)
-
-    def current_project_id(self) -> int:
-        return self.project_combo.currentData() or -1
-
-    def _on_changed(self, index: int):
-        pid = self.project_combo.currentData()
-        if pid and pid != -1:
-            self.project_changed.emit(pid)
-
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {c['bg_secondary']};
-                border-bottom: 1px solid {c['border']};
-            }}
-        """)
-
 
 # ─────────────────────────────────────────────
 #  ANALYSIS PAGE
 # ─────────────────────────────────────────────
 class AnalysisPage(QWidget):
-    """
-    Page 2 — Analysis
-    Import files, manage project files, run analysis.
-    """
-
-    analysis_complete = pyqtSignal(int, int, int)  # pid, text, img
-    status_message    = pyqtSignal(str)
+    analysis_complete = pyqtSignal(int, int, int)
+    status_message = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._project_id: int      = None
-        self._project_data: dict   = None
-        self._worker: AnalysisWorker = None
-        self._files: list          = []
+        self._project_id = None
+        self._project_data = None
+        self._worker = None
+        self._files = []
+        self._scan_mode = "single"
         self._build()
         ThemeManager.add_listener(self.apply_theme)
 
     def _build(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setSpacing(10)
 
-        # ── Project selector ──
-        self.selector = ProjectSelectorBar()
-        self.selector.project_changed.connect(
-            self.set_project
-        )
-        outer.addWidget(self.selector)
+        # Project selector
+        proj_row = QHBoxLayout()
+        proj_row.setSpacing(8)
 
-        # ── Scroll content ──
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        proj_lbl = QLabel("Active Project:")
+        proj_lbl.setStyleSheet(
+            "font-size: 12px; font-weight: 600;"
+            "background: transparent; border: 0px;"
         )
 
-        content = QWidget()
-        self.main_layout = QVBoxLayout(content)
-        self.main_layout.setContentsMargins(28, 20, 28, 28)
-        self.main_layout.setSpacing(18)
+        self.project_combo = QComboBox()
+        self.project_combo.setMinimumWidth(240)
+        self.project_combo.currentIndexChanged.connect(self._on_project_changed)
 
-        # No project selected state
+        proj_row.addWidget(proj_lbl)
+        proj_row.addWidget(self.project_combo)
+        proj_row.addStretch()
+        outer.addLayout(proj_row)
+
+        # No project state
         self.no_project_state = EmptyState(
-            icon    = "📁",
-            title   = "No project selected",
-            message = (
-                "Select a project from the dropdown above, "
-                "or go to Projects to create one."
-            ),
+            title="No project selected",
+            message="Select a project or go to Projects page to create one.",
         )
-        self.no_project_state.setVisible(True)
-        self.main_layout.addWidget(self.no_project_state)
+        outer.addWidget(self.no_project_state)
 
-        # ── Project info ──
-        self.info_frame = QFrame()
-        self.info_frame.setVisible(False)
-        self._build_info_frame()
-        self.main_layout.addWidget(self.info_frame)
+        # ── Scan mode ──
+        self.mode_selector = ScanModeSelector()
+        self.mode_selector.mode_changed.connect(self._on_mode_changed)
+        self.mode_selector.setVisible(False)
+        outer.addWidget(self.mode_selector)
 
-        # ── Drop zone ──
-        self.drop_zone = DropZone()
-        self.drop_zone.files_dropped.connect(self._on_files_dropped)
-        self.drop_zone.setVisible(False)
-        self.main_layout.addWidget(self.drop_zone)
+        # ── File import ──
+        self.import_panel = FileImportPanel()
+        self.import_panel.files_dropped.connect(self._on_files_dropped)
+        self.import_panel.setVisible(False)
+        outer.addWidget(self.import_panel)
+
+        # ── File list ──
+        self.files_group = QGroupBox("Imported Files")
+        fg_layout = QVBoxLayout(self.files_group)
+        fg_layout.setContentsMargins(10, 14, 10, 10)
+        fg_layout.setSpacing(6)
+
+        # File list toolbar
+        fl_toolbar = QHBoxLayout()
+        self.file_count_lbl = QLabel("0 files")
+        self.file_count_lbl.setStyleSheet(
+            "font-size: 11px; background: transparent; border: 0px;"
+        )
+
+        self.clear_results_btn = QPushButton("Clear Results")
+        self.clear_results_btn.setFixedHeight(24)
+        self.clear_results_btn.setMinimumWidth(100)
+        self.clear_results_btn.clicked.connect(self._on_clear_results)
+
+        self.remove_all_btn = QPushButton("Remove All")
+        self.remove_all_btn.setFixedHeight(24)
+        self.remove_all_btn.setMinimumWidth(90)
+        self.remove_all_btn.clicked.connect(self._on_remove_all)
+
+        fl_toolbar.addWidget(self.file_count_lbl)
+        fl_toolbar.addStretch()
+        fl_toolbar.addWidget(self.clear_results_btn)
+        fl_toolbar.addWidget(self.remove_all_btn)
+        fg_layout.addLayout(fl_toolbar)
+
+        self.file_table = FileTable()
+        self.file_table.setMinimumHeight(140)
+        self.file_table.remove_file.connect(self._on_remove_file)
+        fg_layout.addWidget(self.file_table)
+
+        self.files_group.setVisible(False)
+        outer.addWidget(self.files_group, 1)
+
+        # ── Progress ──
+        self.progress_panel = ProgressPanel()
+        self.progress_panel.cancel_clicked.connect(self._on_cancel)
+        outer.addWidget(self.progress_panel)
 
         # ── Action bar ──
         self.action_bar = QFrame()
+        act_layout = QHBoxLayout(self.action_bar)
+        act_layout.setContentsMargins(0, 0, 0, 0)
+        act_layout.setSpacing(8)
+
+        self.status_hint_lbl = QLabel("")
+        self.status_hint_lbl.setStyleSheet(
+            "font-size: 11px; background: transparent; border: 0px;"
+        )
+
+        self.run_btn = QPushButton("Find Duplicates")
+        self.run_btn.setProperty("class", "accent")
+        self.run_btn.setMinimumWidth(140)
+        self.run_btn.setMinimumHeight(30)
+        self.run_btn.clicked.connect(self._on_run)
+
+        act_layout.addWidget(self.status_hint_lbl, 1)
+        act_layout.addWidget(self.run_btn)
+
         self.action_bar.setVisible(False)
-        self._build_action_bar()
-        self.main_layout.addWidget(self.action_bar)
-
-        # ── Progress panel ──
-        self.progress_panel = ProgressPanel()
-        self.progress_panel.cancel_clicked.connect(
-            self._on_cancel
-        )
-        self.main_layout.addWidget(self.progress_panel)
-
-        # ── File table ──
-        self.file_table_frame = QFrame()
-        self.file_table_frame.setVisible(False)
-        self._build_file_table()
-        self.main_layout.addWidget(self.file_table_frame, 1)
-
-        # Empty file state
-        self.empty_files = EmptyState(
-            icon    = "📂",
-            title   = "No files imported yet",
-            message = (
-                "Drag and drop files above, or use "
-                "Browse to add files to this project."
-            ),
-        )
-        self.empty_files.setVisible(False)
-        self.main_layout.addWidget(self.empty_files)
-
-        self.main_layout.addStretch()
-
-        scroll.setWidget(content)
-        outer.addWidget(scroll, 1)
+        outer.addWidget(self.action_bar)
 
         self.apply_theme()
 
-    def _build_info_frame(self):
-        layout = QHBoxLayout(self.info_frame)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(20)
-
-        # Project name
-        name_col = QVBoxLayout()
-        name_col.setSpacing(2)
-
-        self.proj_name_lbl = QLabel("Project Name")
-        self.proj_name_lbl.setStyleSheet(
-            "font-size: 16px; font-weight: 700;"
-            "background: transparent;"
-        )
-
-        self.proj_meta_lbl = QLabel("")
-        self.proj_meta_lbl.setStyleSheet(
-            "font-size: 12px; background: transparent;"
-        )
-
-        name_col.addWidget(self.proj_name_lbl)
-        name_col.addWidget(self.proj_meta_lbl)
-        layout.addLayout(name_col, 1)
-
-        # Stats chips
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(10)
-
-        self.chip_files = self._make_chip("📄", "0 files")
-        self.chip_threshold = self._make_chip("🎯", "70% threshold")
-        self.chip_status = self._make_chip("📊", "Idle")
-
-        stats_row.addWidget(self.chip_files)
-        stats_row.addWidget(self.chip_threshold)
-        stats_row.addWidget(self.chip_status)
-        layout.addLayout(stats_row)
-
-    def _make_chip(self, icon: str, text: str) -> QLabel:
-        lbl = QLabel(f"{icon}  {text}")
-        lbl.setStyleSheet("""
-            QLabel {
-                background-color: #1e3a5f;
-                color: #9aa5c4;
-                border-radius: 6px;
-                padding: 4px 10px;
-                font-size: 12px;
-            }
-        """)
-        return lbl
-
-    def _build_action_bar(self):
-        layout = QHBoxLayout(self.action_bar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        self.file_count_lbl = QLabel("0 files")
-        self.file_count_lbl.setStyleSheet(
-            "font-size: 13px; background: transparent;"
-        )
-
-        layout.addWidget(self.file_count_lbl)
-        layout.addStretch()
-
-        self.clear_results_btn = QPushButton("🗑️ Clear Results")
-        self.clear_results_btn.setProperty("class", "ghost")
-        self.clear_results_btn.setFixedHeight(34)
-        self.clear_results_btn.clicked.connect(
-            self._on_clear_results
-        )
-
-        self.remove_all_btn = QPushButton("✕ Remove All Files")
-        self.remove_all_btn.setProperty("class", "ghost")
-        self.remove_all_btn.setFixedHeight(34)
-        self.remove_all_btn.clicked.connect(
-            self._on_remove_all
-        )
-
-        self.run_btn = QPushButton("▶  Run Analysis")
-        self.run_btn.setFixedHeight(36)
-        self.run_btn.setFixedWidth(160)
-        self.run_btn.clicked.connect(self._on_run)
-
-        layout.addWidget(self.clear_results_btn)
-        layout.addWidget(self.remove_all_btn)
-        layout.addWidget(self.run_btn)
-
-    def _build_file_table(self):
-        layout = QVBoxLayout(self.file_table_frame)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        hdr = QHBoxLayout()
-        sec_lbl = QLabel("IMPORTED FILES")
-        sec_lbl.setStyleSheet(
-            "font-size: 10px; font-weight: 700;"
-            "letter-spacing: 1.5px; background: transparent;"
-        )
-        hdr.addWidget(sec_lbl)
-        hdr.addStretch()
-
-        self.refresh_btn = QPushButton("↻ Refresh")
-        self.refresh_btn.setProperty("class", "ghost")
-        self.refresh_btn.setFixedHeight(28)
-        self.refresh_btn.clicked.connect(self._load_files)
-        hdr.addWidget(self.refresh_btn)
-        layout.addLayout(hdr)
-
-        self.file_table = FileTable()
-        self.file_table.setMinimumHeight(200)
-        self.file_table.remove_file.connect(
-            self._on_remove_file
-        )
-        layout.addWidget(self.file_table)
-
-    # ─────────────────────────────────────────
-    #  PROJECT LOADING
-    # ─────────────────────────────────────────
     def refresh(self):
-        """Reload project list in selector"""
-        from core.processor import get_all_projects
-        projects = get_all_projects()
-        self.selector.load_projects(
-            projects, self._project_id
-        )
-        if self._project_id:
-            self._load_files()
+        try:
+            projects = get_all_projects()
+            self._load_project_list(projects)
+            if self._project_id:
+                self._load_files()
+        except Exception as e:
+            print(f"Analysis refresh error: {e}")
+
+    def _load_project_list(self, projects):
+        self.project_combo.blockSignals(True)
+        self.project_combo.clear()
+        if not projects:
+            self.project_combo.addItem("No projects — create one first", -1)
+        else:
+            for p in projects:
+                label = f"{p['name']}  ({p['file_count']} files)"
+                self.project_combo.addItem(label, p["id"])
+            if self._project_id:
+                for i in range(self.project_combo.count()):
+                    if self.project_combo.itemData(i) == self._project_id:
+                        self.project_combo.setCurrentIndex(i)
+                        break
+        self.project_combo.blockSignals(False)
+
+    def _on_project_changed(self, index):
+        pid = self.project_combo.currentData()
+        if pid and pid != -1:
+            self.set_project(pid)
 
     def set_project(self, project_id: int):
-        """Set active project"""
         if project_id == self._project_id:
             return
-
-        self._project_id   = project_id
+        self._project_id = project_id
         self._project_data = get_project(project_id)
-
         if not self._project_data:
             return
 
-        # Update UI
         self.no_project_state.setVisible(False)
-        self.info_frame.setVisible(True)
-        self.drop_zone.setVisible(True)
+        self.mode_selector.setVisible(True)
+        self.import_panel.setVisible(True)
+        self.files_group.setVisible(True)
         self.action_bar.setVisible(True)
-
-        self._update_info()
         self._load_files()
-
-    def _update_info(self):
-        if not self._project_data:
-            return
-        p = self._project_data
-
-        self.proj_name_lbl.setText(p.get("name", ""))
-        desc = p.get("description", "") or "No description"
-        self.proj_meta_lbl.setText(desc)
-
-        self.chip_files.setText(
-            f"📄  {p.get('file_count', 0)} files"
-        )
-        pct = int(p.get("similarity_threshold", 0.70) * 100)
-        self.chip_threshold.setText(
-            f"🎯  {pct}% threshold"
-        )
-        status = p.get("status", "idle").capitalize()
-        self.chip_status.setText(f"📊  {status}")
+        self._update_run_hint()
 
     def _load_files(self):
         if not self._project_id:
             return
         try:
-            self._files = get_files_for_project(
-                self._project_id
-            )
+            self._files = get_files_for_project(self._project_id)
             self._render_files()
         except Exception as e:
             print(f"Load files error: {e}")
@@ -928,33 +572,55 @@ class AnalysisPage(QWidget):
         self.file_count_lbl.setText(
             f"{count} file{'s' if count != 1 else ''} imported"
         )
+        self.file_table.load_files(self._files)
+        self._update_run_hint()
 
+    def _update_run_hint(self):
+        count = len(self._files)
         if count == 0:
-            self.file_table_frame.setVisible(False)
-            self.empty_files.setVisible(True)
+            self.status_hint_lbl.setText("Import files to begin analysis.")
+            self.run_btn.setEnabled(False)
+        elif self._scan_mode == "single" and count == 1:
+            self.status_hint_lbl.setText("Ready to find duplicates within this file.")
+            self.run_btn.setEnabled(True)
+        elif self._scan_mode == "single" and count > 1:
+            self.status_hint_lbl.setText(
+                f"Single mode: only first file will be scanned. "
+                f"Switch to Multiple mode to compare all {count} files."
+            )
+            self.run_btn.setEnabled(True)
+        elif self._scan_mode == "multiple" and count < 2:
+            self.status_hint_lbl.setText(
+                "Multiple mode needs at least 2 files. Import more or switch to Single mode."
+            )
+            self.run_btn.setEnabled(False)
         else:
-            self.empty_files.setVisible(False)
-            self.file_table_frame.setVisible(True)
-            self.file_table.load_files(self._files)
+            self.status_hint_lbl.setText(
+                f"Ready to compare {count} files."
+            )
+            self.run_btn.setEnabled(True)
 
-    # ─────────────────────────────────────────
-    #  FILE ACTIONS
-    # ─────────────────────────────────────────
+    def _on_mode_changed(self, mode: str):
+        self._scan_mode = mode
+        self.import_panel.set_mode(mode)
+        self._update_run_hint()
+
     def _on_files_dropped(self, paths: list):
         if not self._project_id:
-            QMessageBox.warning(
-                self, "No Project",
-                "Please select or create a project first."
-            )
+            QMessageBox.warning(self, "No Project", "Select a project first.")
             return
+
+        # Single mode: replace all files with the new one
+        if self._scan_mode == "single":
+            if len(paths) > 1:
+                paths = [paths[0]]
+            # Clear existing files first
+            for f in self._files:
+                remove_file_from_project(f["id"])
 
         storage_mode = (
             self._project_data.get("storage_mode", "reference")
             if self._project_data else "reference"
-        )
-
-        self.status_message.emit(
-            f"Adding {len(paths)} file(s)..."
         )
 
         try:
@@ -963,42 +629,28 @@ class AnalysisPage(QWidget):
             )
             self._load_files()
             self._project_data = get_project(self._project_id)
-            self._update_info()
-            self.status_message.emit(
-                f"✅ Added {len(added)} file(s) to project"
-            )
+            self.status_message.emit(f"Added {len(added)} file(s)")
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error",
-                f"Failed to add files:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to add files:\n{e}")
 
     def _on_remove_file(self, file_id: int):
         reply = QMessageBox.question(
-            self,
-            "Remove File",
-            "Remove this file from the project?\n\n"
-            "Analysis results for this file will also be removed.",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No,
+            self, "Remove File", "Remove this file from the project?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             remove_file_from_project(file_id)
             self._load_files()
             self._project_data = get_project(self._project_id)
-            self._update_info()
 
     def _on_remove_all(self):
         if not self._files:
             return
         reply = QMessageBox.question(
-            self,
-            "Remove All Files",
-            f"Remove all {len(self._files)} files from project?\n\n"
-            "This will also clear all analysis results.",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No,
+            self, "Remove All",
+            f"Remove all {len(self._files)} files?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
@@ -1006,164 +658,82 @@ class AnalysisPage(QWidget):
                 remove_file_from_project(f["id"])
             self._load_files()
             self._project_data = get_project(self._project_id)
-            self._update_info()
 
     def _on_clear_results(self):
         if not self._project_id:
             return
         reply = QMessageBox.question(
-            self,
-            "Clear Results",
-            "Clear all analysis results for this project?\n\n"
-            "Files will remain but results will be deleted.\n"
-            "You can re-run the analysis after clearing.",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No,
+            self, "Clear Results",
+            "Clear all analysis results?\n\nFiles will remain but results deleted.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             clear_project_results(self._project_id)
             self._load_files()
-            self.status_message.emit(
-                "🗑️ Results cleared — ready to re-run analysis"
-            )
+            self.status_message.emit("Results cleared")
 
-    # ─────────────────────────────────────────
-    #  ANALYSIS RUNNER
-    # ─────────────────────────────────────────
     def _on_run(self):
-        if not self._project_id:
-            QMessageBox.warning(
-                self, "No Project",
-                "Please select a project first."
-            )
+        if not self._project_id or not self._files:
             return
-
-        if not self._files:
-            QMessageBox.warning(
-                self, "No Files",
-                "Please add files to the project before "
-                "running analysis."
-            )
-            return
-
-        # Confirm re-run if already done
-        if self._project_data:
-            status = self._project_data.get("status", "idle")
-            if status == "done":
-                reply = QMessageBox.question(
-                    self,
-                    "Re-run Analysis",
-                    "This project has already been analyzed.\n\n"
-                    "Re-running will replace the existing results.\n"
-                    "Continue?",
-                    QMessageBox.StandardButton.Yes |
-                    QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if reply != QMessageBox.StandardButton.Yes:
-                    return
 
         threshold = (
             self._project_data.get("similarity_threshold", 0.70)
             if self._project_data else 0.70
         )
 
-        # Start worker
         self._worker = AnalysisWorker(
-            project_id       = self._project_id,
-            text_threshold   = threshold,
-            image_threshold  = 0.85,
+            project_id=self._project_id,
+            text_threshold=threshold,
+            image_threshold=0.85,
         )
+        self._worker.progress_changed.connect(self.progress_panel.update_progress)
+        self._worker.stage_changed.connect(self.progress_panel.update_stage)
+        self._worker.log_message.connect(self.progress_panel.append_log)
+        self._worker.file_processed.connect(lambda *a: self._load_files())
+        self._worker.finished_ok.connect(self._on_finished_ok)
+        self._worker.finished_error.connect(self._on_finished_error)
 
-        self._worker.progress_changed.connect(
-            self.progress_panel.update_progress
-        )
-        self._worker.stage_changed.connect(
-            self.progress_panel.update_stage
-        )
-        self._worker.log_message.connect(
-            self.progress_panel.append_log
-        )
-        self._worker.file_processed.connect(
-            self._on_file_processed
-        )
-        self._worker.finished_ok.connect(
-            self._on_finished_ok
-        )
-        self._worker.finished_error.connect(
-            self._on_finished_error
-        )
-
-        # Update UI state
         self.run_btn.setEnabled(False)
-        self.run_btn.setText("⏳ Running...")
+        self.run_btn.setText("Running...")
         self.progress_panel.start()
-        self.status_message.emit("🔍 Analysis running...")
-
+        self.status_message.emit("Analysis running...")
         self._worker.start()
 
     def _on_cancel(self):
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
             self.run_btn.setEnabled(True)
-            self.run_btn.setText("▶  Run Analysis")
+            self.run_btn.setText("Find Duplicates")
             self.progress_panel.stop()
-            self.status_message.emit("⚠️ Analysis cancelled")
 
-    def _on_file_processed(self, file_name: str, success: bool):
-        """Update file status in table as files complete"""
-        self._load_files()
-
-    def _on_finished_ok(
-        self,
-        files_done: int,
-        text_found: int,
-        img_found: int,
-    ):
+    def _on_finished_ok(self, files_done, text_found, img_found):
         self.run_btn.setEnabled(True)
-        self.run_btn.setText("▶  Run Analysis")
+        self.run_btn.setText("Find Duplicates")
         self.progress_panel.stop()
-
         self._project_data = get_project(self._project_id)
-        self._update_info()
         self._load_files()
 
         self.status_message.emit(
-            f"✅ Done — {text_found} text, "
-            f"{img_found} image matches"
+            f"Done - {text_found} text, {img_found} image matches"
         )
-        self.analysis_complete.emit(
-            self._project_id, text_found, img_found
-        )
+        self.analysis_complete.emit(self._project_id, text_found, img_found)
 
         QMessageBox.information(
-            self,
-            "✅ Analysis Complete",
-            f"Analysis finished successfully!\n\n"
-            f"📄 Files processed:   {files_done}\n"
-            f"📝 Text matches:      {text_found}\n"
-            f"🖼️ Image matches:     {img_found}\n\n"
-            f"Switching to Results page...",
+            self, "Analysis Complete",
+            f"Analysis finished!\n\n"
+            f"Files processed: {files_done}\n"
+            f"Text matches:    {text_found}\n"
+            f"Image matches:   {img_found}\n\n"
+            f"Opening Results...",
         )
 
     def _on_finished_error(self, error: str):
         self.run_btn.setEnabled(True)
-        self.run_btn.setText("▶  Run Analysis")
+        self.run_btn.setText("Find Duplicates")
         self.progress_panel.stop()
-        self.status_message.emit(f"❌ Error: {error}")
-
-        QMessageBox.critical(
-            self, "Analysis Error",
-            f"Analysis failed:\n\n{error}"
-        )
+        QMessageBox.critical(self, "Error", f"Analysis failed:\n{error}")
 
     def apply_theme(self):
         c = ThemeManager.colors()
-        self.setStyleSheet(
-            f"background-color: {c['bg_primary']};"
-        )
-        self.file_count_lbl.setStyleSheet(
-            f"font-size: 13px; color: {c['text_secondary']};"
-            f"background: transparent;"
-        )
+        self.setStyleSheet(f"background-color: {c['bg_primary']};")
