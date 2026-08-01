@@ -16,7 +16,6 @@ from database.models import (
 #  IMAGES STORAGE FOLDER
 # ─────────────────────────────────────────────
 def get_images_dir(project_id: int) -> Path:
-    """Where extracted images are saved locally"""
     base = Path(get_db_path()).parent / "extracted_images" / str(project_id)
     base.mkdir(parents=True, exist_ok=True)
     return base
@@ -26,7 +25,6 @@ def get_images_dir(project_id: int) -> Path:
 #  TEXT CLEANING
 # ─────────────────────────────────────────────
 def clean_text(text: str) -> str:
-    """Normalize whitespace and remove junk characters"""
     if not text:
         return ""
     text = re.sub(r'\r\n|\r', '\n', text)
@@ -36,24 +34,81 @@ def clean_text(text: str) -> str:
     return text
 
 
-def chunk_text(text: str, min_words: int = 8) -> List[str]:
+def make_chunks(text: str, min_words: int = 2) -> List[Tuple[str, str]]:
     """
-    Split text into meaningful chunks (paragraphs).
-    Filters out chunks that are too short to be meaningful.
+    Multi-level chunking:
+      - paragraphs (>= 8 words)
+      - lines      (>= 3 words)
+      - short entries (>= 2 words, like table cells)
+    Returns list of (chunk_text, chunk_type)
     """
     if not text:
         return []
-    paragraphs = text.split('\n\n')
-    chunks = []
-    for para in paragraphs:
+
+    chunks: List[Tuple[str, str]] = []
+    seen: set = set()
+
+    def add(txt: str, ctype: str):
+        txt = txt.strip()
+        if not txt:
+            return
+        wc = len(txt.split())
+        if wc < min_words:
+            return
+        key = txt.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        chunks.append((txt, ctype))
+
+    # ── 1. Paragraph-level chunks (>=8 words) ──
+    for para in text.split('\n\n'):
         para = para.strip()
-        if not para:
-            continue
-        words = para.split()
-        if len(words) < min_words:
-            continue
-        chunks.append(para)
+        if para and len(para.split()) >= 8:
+            add(para, "paragraph")
+
+    # ── 2. Line-level chunks (>=3 words) ──
+    for line in text.split('\n'):
+        line = line.strip()
+        if line and len(line.split()) >= 3:
+            add(line, "line")
+
+    # ── 3. Short entries (2 words) — for table cells, lists ──
+    for line in text.split('\n'):
+        line = line.strip()
+        parts = re.split(r'\s*[|,;\t]\s*', line)
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            wc = len(part.split())
+            if wc >= min_words and wc < 8:
+                # Only keep if it looks meaningful
+                if len(part) >= 3 and not part.isdigit():
+                    add(part, "cell")
+
     return chunks
+
+
+def chunks_to_objects(
+    chunks_data: List[Tuple[str, str]],
+    file_id: int,
+    project_id: int,
+    page_number: int = 0,
+) -> List[TextChunk]:
+    """Convert list of (text, type) into TextChunk objects"""
+    objects = []
+    for idx, (content, ctype) in enumerate(chunks_data):
+        objects.append(TextChunk(
+            file_id=file_id,
+            project_id=project_id,
+            chunk_index=idx,
+            content=content,
+            page_number=page_number,
+            chunk_type=ctype,
+            word_count=len(content.split()),
+        ))
+    return objects
 
 
 # ─────────────────────────────────────────────
@@ -72,22 +127,53 @@ def extract_from_pdf(file_id, project_id, file_path):
     try:
         doc = fitz.open(file_path)
         images_dir = get_images_dir(project_id)
+        global_idx = 0
 
         for page_num, page in enumerate(doc, start=1):
             raw_text = page.get_text("text")
             cleaned = clean_text(raw_text)
-            chunks = chunk_text(cleaned)
-            for idx, chunk in enumerate(chunks):
+            chunks_data = make_chunks(cleaned, min_words=2)
+
+            for content, ctype in chunks_data:
                 text_chunks.append(TextChunk(
                     file_id=file_id,
                     project_id=project_id,
-                    chunk_index=idx,
-                    content=chunk,
+                    chunk_index=global_idx,
+                    content=content,
                     page_number=page_num,
-                    chunk_type="paragraph",
-                    word_count=len(chunk.split()),
+                    chunk_type=ctype,
+                    word_count=len(content.split()),
                 ))
+                global_idx += 1
 
+            # Also extract tables specifically
+            try:
+                tables = page.find_tables()
+                for tbl_idx, table in enumerate(tables):
+                    rows = table.extract()
+                    for row_idx, row in enumerate(rows):
+                        for cell in row:
+                            if cell is None:
+                                continue
+                            cell_txt = str(cell).strip()
+                            if not cell_txt:
+                                continue
+                            wc = len(cell_txt.split())
+                            if wc >= 1 and len(cell_txt) >= 3:
+                                text_chunks.append(TextChunk(
+                                    file_id=file_id,
+                                    project_id=project_id,
+                                    chunk_index=global_idx,
+                                    content=cell_txt,
+                                    page_number=page_num,
+                                    chunk_type="table_cell",
+                                    word_count=wc,
+                                ))
+                                global_idx += 1
+            except Exception:
+                pass  # Tables not available in older PyMuPDF
+
+            # Images
             image_list = page.get_images(full=True)
             for img_idx, img_info in enumerate(image_list):
                 xref = img_info[0]
@@ -126,22 +212,45 @@ def extract_from_docx(file_id, project_id, file_path):
     try:
         doc = Document(file_path)
         images_dir = get_images_dir(project_id)
+        global_idx = 0
+
+        # Paragraph text
         full_text = "\n\n".join(
             p.text for p in doc.paragraphs if p.text.strip()
         )
         cleaned = clean_text(full_text)
-        chunks = chunk_text(cleaned)
-        for idx, chunk in enumerate(chunks):
+        chunks_data = make_chunks(cleaned, min_words=2)
+        for content, ctype in chunks_data:
             text_chunks.append(TextChunk(
                 file_id=file_id,
                 project_id=project_id,
-                chunk_index=idx,
-                content=chunk,
+                chunk_index=global_idx,
+                content=content,
                 page_number=0,
-                chunk_type="paragraph",
-                word_count=len(chunk.split()),
+                chunk_type=ctype,
+                word_count=len(content.split()),
             ))
+            global_idx += 1
 
+        # Table cells
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    cell_txt = cell.text.strip()
+                    if not cell_txt or len(cell_txt) < 3:
+                        continue
+                    text_chunks.append(TextChunk(
+                        file_id=file_id,
+                        project_id=project_id,
+                        chunk_index=global_idx,
+                        content=cell_txt,
+                        page_number=0,
+                        chunk_type="table_cell",
+                        word_count=len(cell_txt.split()),
+                    ))
+                    global_idx += 1
+
+        # Embedded images
         import zipfile
         with zipfile.ZipFile(file_path, 'r') as z:
             media_files = [
@@ -183,16 +292,16 @@ def extract_from_txt(file_id, project_id, file_path):
                 raw = f.read()
 
         cleaned = clean_text(raw)
-        chunks = chunk_text(cleaned)
-        for idx, chunk in enumerate(chunks):
+        chunks_data = make_chunks(cleaned, min_words=2)
+        for idx, (content, ctype) in enumerate(chunks_data):
             text_chunks.append(TextChunk(
                 file_id=file_id,
                 project_id=project_id,
                 chunk_index=idx,
-                content=chunk,
+                content=content,
                 page_number=0,
-                chunk_type="paragraph",
-                word_count=len(chunk.split()),
+                chunk_type=ctype,
+                word_count=len(content.split()),
             ))
 
     except Exception as e:
@@ -207,52 +316,82 @@ def extract_from_txt(file_id, project_id, file_path):
 def extract_from_spreadsheet(file_id, project_id, file_path):
     text_chunks = []
     ext = file_path.rsplit(".", 1)[-1].lower()
+    global_idx = 0
 
     try:
         if ext == "csv":
-            rows = []
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 reader = csv.reader(f)
-                for row in reader:
+                for row_idx, row in enumerate(reader):
+                    # Each cell as a chunk
+                    for cell in row:
+                        cell = cell.strip()
+                        if cell and len(cell) >= 3 and not cell.isdigit():
+                            text_chunks.append(TextChunk(
+                                file_id=file_id,
+                                project_id=project_id,
+                                chunk_index=global_idx,
+                                content=cell,
+                                page_number=0,
+                                chunk_type="table_cell",
+                                word_count=len(cell.split()),
+                            ))
+                            global_idx += 1
+                    # Full row as combined chunk
                     line = " | ".join(
-                        cell.strip() for cell in row if cell.strip()
+                        c.strip() for c in row if c.strip()
                     )
-                    if line:
-                        rows.append(line)
-            full_text = "\n".join(rows)
+                    if line and len(line.split()) >= 2:
+                        text_chunks.append(TextChunk(
+                            file_id=file_id,
+                            project_id=project_id,
+                            chunk_index=global_idx,
+                            content=line,
+                            page_number=0,
+                            chunk_type="row",
+                            word_count=len(line.split()),
+                        ))
+                        global_idx += 1
         else:
             import openpyxl
             wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-            rows = []
             for sheet in wb.worksheets:
-                rows.append(f"[Sheet: {sheet.title}]")
                 for row in sheet.iter_rows(values_only=True):
-                    line = " | ".join(
-                        str(cell).strip()
-                        for cell in row
-                        if cell is not None and str(cell).strip()
-                    )
-                    if line:
-                        rows.append(line)
+                    cells_str = []
+                    for cell in row:
+                        if cell is None:
+                            continue
+                        cell_txt = str(cell).strip()
+                        if not cell_txt:
+                            continue
+                        cells_str.append(cell_txt)
+                        # Each cell as a chunk
+                        if len(cell_txt) >= 3 and not cell_txt.isdigit():
+                            text_chunks.append(TextChunk(
+                                file_id=file_id,
+                                project_id=project_id,
+                                chunk_index=global_idx,
+                                content=cell_txt,
+                                page_number=0,
+                                chunk_type="table_cell",
+                                word_count=len(cell_txt.split()),
+                            ))
+                            global_idx += 1
+                    # Row as combined chunk
+                    if cells_str:
+                        line = " | ".join(cells_str)
+                        if len(line.split()) >= 2:
+                            text_chunks.append(TextChunk(
+                                file_id=file_id,
+                                project_id=project_id,
+                                chunk_index=global_idx,
+                                content=line,
+                                page_number=0,
+                                chunk_type="row",
+                                word_count=len(line.split()),
+                            ))
+                            global_idx += 1
             wb.close()
-            full_text = "\n".join(rows)
-
-        cleaned = clean_text(full_text)
-        lines = [l for l in cleaned.split('\n') if l.strip()]
-        group_size = 10
-        for i in range(0, len(lines), group_size):
-            group = "\n".join(lines[i:i + group_size])
-            if len(group.split()) < 4:
-                continue
-            text_chunks.append(TextChunk(
-                file_id=file_id,
-                project_id=project_id,
-                chunk_index=i // group_size,
-                content=group,
-                page_number=0,
-                chunk_type="row_group",
-                word_count=len(group.split()),
-            ))
 
     except Exception as e:
         print(f"Spreadsheet extraction error [{file_path}]: {e}")
@@ -276,6 +415,7 @@ def extract_from_pptx(file_id, project_id, file_path):
     try:
         prs = Presentation(file_path)
         images_dir = get_images_dir(project_id)
+        global_idx = 0
 
         for slide_num, slide in enumerate(prs.slides, start=1):
             slide_text = []
@@ -286,6 +426,18 @@ def extract_from_pptx(file_id, project_id, file_path):
                         line = " ".join(run.text for run in para.runs).strip()
                         if line:
                             slide_text.append(line)
+                            # Each line as chunk if >=2 words
+                            if len(line.split()) >= 2 and len(line) >= 3:
+                                text_chunks.append(TextChunk(
+                                    file_id=file_id,
+                                    project_id=project_id,
+                                    chunk_index=global_idx,
+                                    content=line,
+                                    page_number=slide_num,
+                                    chunk_type="line",
+                                    word_count=len(line.split()),
+                                ))
+                                global_idx += 1
 
                 if shape.shape_type == 13:
                     try:
@@ -299,6 +451,7 @@ def extract_from_pptx(file_id, project_id, file_path):
                     except Exception as e:
                         print(f"  PPTX image error: {e}")
 
+            # Full slide as combined chunk
             if slide_text:
                 combined = "\n".join(slide_text)
                 cleaned = clean_text(combined)
@@ -306,12 +459,13 @@ def extract_from_pptx(file_id, project_id, file_path):
                     text_chunks.append(TextChunk(
                         file_id=file_id,
                         project_id=project_id,
-                        chunk_index=slide_num - 1,
+                        chunk_index=global_idx,
                         content=cleaned,
                         page_number=slide_num,
                         chunk_type="slide",
                         word_count=len(cleaned.split()),
                     ))
+                    global_idx += 1
 
     except Exception as e:
         print(f"PPTX extraction error [{file_path}]: {e}")

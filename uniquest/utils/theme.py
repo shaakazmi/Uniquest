@@ -8,52 +8,35 @@ from database.db import get_setting, set_setting
 #  COLOR TOKENS
 # ─────────────────────────────────────────────
 DARK = {
-    # Backgrounds
-    "bg_primary":      "#1a1a2e",   # Main window bg
-    "bg_secondary":    "#16213e",   # Sidebar bg
-    "bg_card":         "#0f3460",   # Card / panel bg
-    "bg_input":        "#1e2a45",   # Input fields
-    "bg_hover":        "#1e3a5f",   # Hover state
-    "bg_selected":     "#0f3460",   # Selected item
-
-    # Borders
+    "bg_primary":      "#1a1a2e",
+    "bg_secondary":    "#16213e",
+    "bg_card":         "#0f3460",
+    "bg_input":        "#1e2a45",
+    "bg_hover":        "#1e3a5f",
+    "bg_selected":     "#0f3460",
     "border":          "#2a3f6f",
     "border_light":    "#1e3a5f",
-
-    # Text
     "text_primary":    "#e8eaf6",
     "text_secondary":  "#9aa5c4",
-    "text_muted":      "#5c6bc0",
+    "text_muted":      "#7986cb",
     "text_disabled":   "#3d4f7c",
-
-    # Accent
     "accent":          "#4A9EFF",
     "accent_hover":    "#6cb4ff",
     "accent_pressed":  "#2980d9",
-
-    # Status colors
     "success":         "#4caf50",
     "warning":         "#ff9800",
     "error":           "#f44336",
     "info":            "#2196f3",
-
-    # Similarity colors
     "sim_high":        "#FF4C4C",
     "sim_medium":      "#FFA500",
     "sim_low":         "#FFD700",
     "sim_base":        "#4A9EFF",
-
-    # Sidebar
     "sidebar_bg":      "#0d1b2a",
     "sidebar_text":    "#8892b0",
     "sidebar_active":  "#4A9EFF",
     "sidebar_active_bg": "#1a2744",
-
-    # Scrollbar
     "scrollbar_bg":    "#1a1a2e",
     "scrollbar_handle":"#2a3f6f",
-
-    # Button
     "btn_primary_bg":  "#4A9EFF",
     "btn_primary_text":"#ffffff",
     "btn_danger_bg":   "#f44336",
@@ -62,52 +45,35 @@ DARK = {
 }
 
 LIGHT = {
-    # Backgrounds
     "bg_primary":      "#f5f6fa",
     "bg_secondary":    "#ffffff",
     "bg_card":         "#ffffff",
     "bg_input":        "#f0f2f5",
     "bg_hover":        "#e8ecf5",
     "bg_selected":     "#dce8ff",
-
-    # Borders
     "border":          "#dde1ec",
     "border_light":    "#eef0f7",
-
-    # Text
     "text_primary":    "#1a1a2e",
     "text_secondary":  "#4a5568",
     "text_muted":      "#718096",
     "text_disabled":   "#a0aec0",
-
-    # Accent
     "accent":          "#2563eb",
     "accent_hover":    "#1d4ed8",
     "accent_pressed":  "#1e40af",
-
-    # Status colors
     "success":         "#16a34a",
     "warning":         "#d97706",
     "error":           "#dc2626",
     "info":            "#2563eb",
-
-    # Similarity colors
     "sim_high":        "#dc2626",
     "sim_medium":      "#d97706",
     "sim_low":         "#ca8a04",
     "sim_base":        "#2563eb",
-
-    # Sidebar
     "sidebar_bg":      "#1a1a2e",
     "sidebar_text":    "#8892b0",
     "sidebar_active":  "#4A9EFF",
     "sidebar_active_bg": "#1a2744",
-
-    # Scrollbar
     "scrollbar_bg":    "#f0f2f5",
     "scrollbar_handle":"#cbd5e0",
-
-    # Button
     "btn_primary_bg":  "#2563eb",
     "btn_primary_text":"#ffffff",
     "btn_danger_bg":   "#dc2626",
@@ -116,9 +82,6 @@ LIGHT = {
 }
 
 
-# ─────────────────────────────────────────────
-#  THEME MANAGER
-# ─────────────────────────────────────────────
 class ThemeManager:
     _current: str = "dark"
     _colors: dict = DARK
@@ -126,7 +89,6 @@ class ThemeManager:
 
     @classmethod
     def load(cls):
-        """Load theme from database settings"""
         saved = get_setting("theme", "dark")
         cls._current = saved
         cls._colors  = DARK if saved == "dark" else LIGHT
@@ -149,7 +111,6 @@ class ThemeManager:
 
     @classmethod
     def toggle(cls):
-        """Toggle between dark and light"""
         cls._current = "light" if cls._current == "dark" else "dark"
         cls._colors  = DARK if cls._current == "dark" else LIGHT
         set_setting("theme", cls._current)
@@ -157,7 +118,6 @@ class ThemeManager:
 
     @classmethod
     def set_theme(cls, theme: str):
-        """Set theme explicitly: 'dark' or 'light'"""
         if theme not in ("dark", "light"):
             return
         cls._current = theme
@@ -167,7 +127,6 @@ class ThemeManager:
 
     @classmethod
     def add_listener(cls, callback):
-        """Register a callback to fire when theme changes"""
         if callback not in cls._listeners:
             cls._listeners.append(callback)
 
@@ -185,23 +144,28 @@ class ThemeManager:
                 pass
 
 
-# ─────────────────────────────────────────────
-#  STYLESHEET BUILDER
-# ─────────────────────────────────────────────
 def build_stylesheet() -> str:
     c = ThemeManager.colors()
     return f"""
-    /* ── Global ── */
+    /* ── GLOBAL RESET — NO BORDERS ON DEFAULT WIDGETS ── */
+    * {{
+        outline: none;
+    }}
     QWidget {{
         background-color: {c['bg_primary']};
         color: {c['text_primary']};
         font-family: 'Segoe UI', Arial, sans-serif;
         font-size: 13px;
-        border: none;
-        outline: none;
     }}
 
-    /* ── Main Window ── */
+    /* ── QLabel — CRITICAL: NO BORDER ── */
+    QLabel {{
+        background: transparent;
+        color: {c['text_primary']};
+        border: none;
+        padding: 0px;
+    }}
+
     QMainWindow {{
         background-color: {c['bg_primary']};
     }}
@@ -211,53 +175,40 @@ def build_stylesheet() -> str:
         background-color: transparent;
         border: none;
     }}
+    QScrollArea > QWidget > QWidget {{
+        background-color: transparent;
+    }}
     QScrollBar:vertical {{
         background: {c['scrollbar_bg']};
-        width: 6px;
-        border-radius: 3px;
+        width: 8px;
+        border: none;
+        border-radius: 4px;
     }}
     QScrollBar::handle:vertical {{
         background: {c['scrollbar_handle']};
-        border-radius: 3px;
+        border-radius: 4px;
         min-height: 30px;
     }}
     QScrollBar::add-line:vertical,
     QScrollBar::sub-line:vertical {{
         height: 0px;
+        border: none;
     }}
     QScrollBar:horizontal {{
         background: {c['scrollbar_bg']};
-        height: 6px;
-        border-radius: 3px;
+        height: 8px;
+        border: none;
+        border-radius: 4px;
     }}
     QScrollBar::handle:horizontal {{
         background: {c['scrollbar_handle']};
-        border-radius: 3px;
+        border-radius: 4px;
         min-width: 30px;
     }}
     QScrollBar::add-line:horizontal,
     QScrollBar::sub-line:horizontal {{
         width: 0px;
-    }}
-
-    /* ── Labels ── */
-    QLabel {{
-        background: transparent;
-        color: {c['text_primary']};
-    }}
-    QLabel[class="muted"] {{
-        color: {c['text_muted']};
-        font-size: 12px;
-    }}
-    QLabel[class="heading"] {{
-        font-size: 20px;
-        font-weight: 700;
-        color: {c['text_primary']};
-    }}
-    QLabel[class="subheading"] {{
-        font-size: 15px;
-        font-weight: 600;
-        color: {c['text_secondary']};
+        border: none;
     }}
 
     /* ── Push Buttons ── */
@@ -282,27 +233,18 @@ def build_stylesheet() -> str:
     }}
     QPushButton[class="danger"] {{
         background-color: {c['btn_danger_bg']};
+        color: #ffffff;
     }}
     QPushButton[class="danger"]:hover {{
         background-color: #ff6659;
     }}
     QPushButton[class="ghost"] {{
-        background-color: {c['btn_ghost_bg']};
+        background-color: transparent;
         color: {c['btn_ghost_text']};
         border: 1.5px solid {c['accent']};
     }}
     QPushButton[class="ghost"]:hover {{
         background-color: {c['bg_hover']};
-    }}
-    QPushButton[class="icon_btn"] {{
-        background-color: transparent;
-        color: {c['text_secondary']};
-        padding: 4px;
-        border-radius: 4px;
-    }}
-    QPushButton[class="icon_btn"]:hover {{
-        background-color: {c['bg_hover']};
-        color: {c['text_primary']};
     }}
 
     /* ── Line Edit ── */
@@ -356,6 +298,7 @@ def build_stylesheet() -> str:
         border: 1px solid {c['border']};
         border-radius: 6px;
         selection-background-color: {c['bg_selected']};
+        padding: 4px;
     }}
 
     /* ── Slider ── */
@@ -401,6 +344,7 @@ def build_stylesheet() -> str:
     }}
     QTableWidget::item {{
         padding: 8px;
+        border: none;
     }}
     QTableWidget::item:selected {{
         background-color: {c['bg_selected']};
@@ -416,36 +360,12 @@ def build_stylesheet() -> str:
         border-bottom: 1px solid {c['border']};
     }}
 
-    /* ── Tab Widget ── */
-    QTabWidget::pane {{
-        border: 1px solid {c['border']};
-        border-radius: 0 8px 8px 8px;
-        background: {c['bg_card']};
-    }}
-    QTabBar::tab {{
-        background: {c['bg_input']};
-        color: {c['text_secondary']};
-        padding: 8px 20px;
-        border: 1px solid {c['border']};
-        border-bottom: none;
-        border-radius: 6px 6px 0 0;
-        font-size: 13px;
-        margin-right: 2px;
-    }}
-    QTabBar::tab:selected {{
-        background: {c['bg_card']};
-        color: {c['accent']};
-        font-weight: 600;
-    }}
-    QTabBar::tab:hover:!selected {{
-        background: {c['bg_hover']};
-        color: {c['text_primary']};
-    }}
-
     /* ── Check Box ── */
     QCheckBox {{
         color: {c['text_primary']};
         spacing: 8px;
+        background: transparent;
+        border: none;
     }}
     QCheckBox::indicator {{
         width: 16px;
@@ -455,6 +375,25 @@ def build_stylesheet() -> str:
         background: {c['bg_input']};
     }}
     QCheckBox::indicator:checked {{
+        background: {c['accent']};
+        border-color: {c['accent']};
+    }}
+
+    /* ── Radio Button ── */
+    QRadioButton {{
+        color: {c['text_primary']};
+        spacing: 8px;
+        background: transparent;
+        border: none;
+    }}
+    QRadioButton::indicator {{
+        width: 16px;
+        height: 16px;
+        border: 2px solid {c['border']};
+        border-radius: 8px;
+        background: {c['bg_input']};
+    }}
+    QRadioButton::indicator:checked {{
         background: {c['accent']};
         border-color: {c['accent']};
     }}
@@ -474,11 +413,21 @@ def build_stylesheet() -> str:
         background-color: {c['bg_primary']};
         color: {c['text_primary']};
     }}
+    QMessageBox QLabel {{
+        color: {c['text_primary']};
+        background: transparent;
+        border: none;
+    }}
 
     /* ── Dialog ── */
     QDialog {{
         background-color: {c['bg_primary']};
         color: {c['text_primary']};
+    }}
+    QDialog QLabel {{
+        color: {c['text_primary']};
+        background: transparent;
+        border: none;
     }}
 
     /* ── Splitter ── */
@@ -492,7 +441,7 @@ def build_stylesheet() -> str:
         height: 2px;
     }}
 
-    /* ── Frame ── */
+    /* ── Frame classes ── */
     QFrame[class="card"] {{
         background-color: {c['bg_card']};
         border: 1px solid {c['border']};
@@ -506,17 +455,16 @@ def build_stylesheet() -> str:
         background-color: {c['border']};
         max-height: 1px;
         min-height: 1px;
+        border: none;
     }}
     """
 
 
 def apply_theme(app: QApplication):
-    """Apply current theme stylesheet to the app"""
     ThemeManager.load()
     app.setStyle("Fusion")
     app.setStyleSheet(build_stylesheet())
 
 
 def refresh_theme(app: QApplication):
-    """Refresh stylesheet after theme toggle"""
     app.setStyleSheet(build_stylesheet())

@@ -621,7 +621,9 @@ class DashboardPage(QWidget):
 
         see_all = QPushButton("See All →")
         see_all.setProperty("class", "ghost")
-        see_all.setFixedHeight(28)
+        see_all.setFixedHeight(32)
+        see_all.setFixedWidth(110)
+        see_all.setCursor(Qt.CursorShape.PointingHandCursor)
         see_all.clicked.connect(self.go_to_projects)
 
         header.addWidget(sec)
