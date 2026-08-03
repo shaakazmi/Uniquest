@@ -1,512 +1,219 @@
-import sys
-from pathlib import Path
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout,
-    QVBoxLayout, QLabel, QPushButton,
-    QFrame, QStackedWidget, QSizePolicy,
-    QSpacerItem, QApplication,
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QPushButton, QLabel, QStatusBar, QStackedWidget,
+    QSizePolicy, QFrame
 )
-from PyQt6.QtCore import (
-    Qt, QSize, pyqtSignal, QTimer
-)
-from PyQt6.QtGui import (
-    QIcon, QPixmap, QFont,
-)
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QFont
 
-from utils.theme import ThemeManager, build_stylesheet, refresh_theme
-from ui.dashboard import DashboardPage
-from ui.projects import ProjectsPage
-from ui.analysis import AnalysisPage
-from ui.results import ResultsPage
-from ui.settings import SettingsPage
+from utils.theme import apply_theme, get_colors
+from database.db import get_setting, set_setting
 
 
-def assets_path() -> Path:
-    if getattr(sys, "frozen", False):
-        base = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(sys.executable).parent
-    else:
-        base = Path(__file__).parent.parent
-    return base / "assets"
-
-
-# ─────────────────────────────────────────────
-#  SIDEBAR NAV BUTTON
-# ─────────────────────────────────────────────
-class NavButton(QPushButton):
-    def __init__(self, label: str, parent=None):
-        super().__init__(parent)
-        self.label_text = label
-        self._active = False
-        self.setText("  " + label)
-        self.setFixedHeight(32)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._refresh_style()
-
-    def set_active(self, active: bool):
-        self._active = active
-        self._refresh_style()
-
-    def _refresh_style(self):
-        c = ThemeManager.colors()
-        if self._active:
-            self.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {c['sidebar_active_bg']};
-                    color: {c['sidebar_active']};
-                    border: 0px;
-                    border-left: 3px solid {c['sidebar_active']};
-                    text-align: left;
-                    padding-left: 14px;
-                    font-weight: 600;
-                    font-size: 12px;
-                }}
-            """)
-        else:
-            self.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: transparent;
-                    color: {c['sidebar_text']};
-                    border: 0px;
-                    border-left: 3px solid transparent;
-                    text-align: left;
-                    padding-left: 14px;
-                    font-size: 12px;
-                }}
-                QPushButton:hover {{
-                    background-color: {c['bg_hover']};
-                }}
-            """)
-
-    def apply_theme(self):
-        self._refresh_style()
-
-
-# ─────────────────────────────────────────────
-#  SIDEBAR
-# ─────────────────────────────────────────────
-class Sidebar(QFrame):
-    nav_clicked = pyqtSignal(int)
-
-    NAV_ITEMS = [
-        "Dashboard",
-        "Projects",
-        "Analysis",
-        "Results",
-        "Settings",
-    ]
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedWidth(180)
-        self.setProperty("class", "sidebar")
-        self._buttons = []
-        self._build()
-        ThemeManager.add_listener(self.apply_theme)
-
-    def _build(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Logo/title area
-        header = QFrame()
-        header.setFixedHeight(56)
-        h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(12, 0, 12, 0)
-        h_layout.setSpacing(8)
-
-        # Logo
-        logo_path = assets_path() / "logo.ico"
-        self.logo_lbl = QLabel()
-        if logo_path.exists():
-            pix = QPixmap(str(logo_path)).scaled(
-                24, 24,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.logo_lbl.setPixmap(pix)
-        self.logo_lbl.setFixedSize(28, 28)
-
-        self.app_name = QLabel("Uniquest")
-        self.app_name.setStyleSheet(
-            "font-size: 15px; font-weight: 700;"
-            "background: transparent; border: 0px;"
-        )
-
-        h_layout.addWidget(self.logo_lbl)
-        h_layout.addWidget(self.app_name)
-        h_layout.addStretch()
-        layout.addWidget(header)
-
-        # Divider
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet(
-            f"background: {ThemeManager.get('border')}; border: 0px;"
-        )
-        layout.addWidget(div)
-
-        # Nav buttons
-        layout.addSpacing(8)
-        for i, label in enumerate(self.NAV_ITEMS):
-            btn = NavButton(label)
-            btn.clicked.connect(
-                lambda checked, idx=i: self._on_nav(idx)
-            )
-            layout.addWidget(btn)
-            self._buttons.append(btn)
-
-        layout.addStretch()
-
-        # Divider before theme toggle
-        div2 = QFrame()
-        div2.setFixedHeight(1)
-        div2.setStyleSheet(
-            f"background: {ThemeManager.get('border')}; border: 0px;"
-        )
-        layout.addWidget(div2)
-
-        # Theme toggle
-        self.theme_btn = QPushButton()
-        self.theme_btn.setFixedHeight(28)
-        self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.theme_btn.clicked.connect(self._toggle_theme)
-        self._update_theme_btn()
-        layout.addWidget(self.theme_btn)
-
-        # Version
-        ver_lbl = QLabel("v1.0.0")
-        ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ver_lbl.setStyleSheet(
-            "font-size: 10px; color: #888888;"
-            "background: transparent; border: 0px; padding: 4px;"
-        )
-        layout.addWidget(ver_lbl)
-
-        self._set_active(0)
-
-    def _on_nav(self, index: int):
-        self._set_active(index)
-        self.nav_clicked.emit(index)
-
-    def _set_active(self, index: int):
-        for i, btn in enumerate(self._buttons):
-            btn.set_active(i == index)
-
-    def set_page(self, index: int):
-        self._set_active(index)
-
-    def _toggle_theme(self):
-        ThemeManager.toggle()
-        app = QApplication.instance()
-        if app:
-            refresh_theme(app)
-        self.apply_theme()
-
-    def _update_theme_btn(self):
-        c = ThemeManager.colors()
-        text = "Switch to Light" if ThemeManager.is_dark() else "Switch to Dark"
-        self.theme_btn.setText(text)
-        self.theme_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {c['sidebar_text']};
-                border: 0px;
-                text-align: center;
-                padding: 4px;
-                font-size: 11px;
-            }}
-            QPushButton:hover {{
-                background: {c['bg_hover']};
-                color: {c['accent']};
-            }}
-        """)
-
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(
-            f"background-color: {c['sidebar_bg']};"
-            f"border: 0px; border-right: 1px solid {c['border']};"
-        )
-        self.app_name.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {c['text_primary']};"
-            f"background: transparent; border: 0px;"
-        )
-        self._update_theme_btn()
-        for btn in self._buttons:
-            btn.apply_theme()
-
-
-# ─────────────────────────────────────────────
-#  TOP BAR
-# ─────────────────────────────────────────────
-class TopBar(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedHeight(44)
-        self._build()
-        ThemeManager.add_listener(self.apply_theme)
-
-    def _build(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(8)
-
-        self.title_lbl = QLabel("Dashboard")
-        self.title_lbl.setStyleSheet(
-            "font-size: 14px; font-weight: 600;"
-            "background: transparent; border: 0px;"
-        )
-        self.sub_lbl = QLabel("")
-        self.sub_lbl.setStyleSheet(
-            "font-size: 11px; background: transparent; border: 0px;"
-        )
-
-        col = QVBoxLayout()
-        col.setSpacing(0)
-        col.addWidget(self.title_lbl)
-        col.addWidget(self.sub_lbl)
-
-        layout.addLayout(col)
-        layout.addStretch()
-        self.apply_theme()
-
-    def set_title(self, title: str, subtitle: str = ""):
-        self.title_lbl.setText(title)
-        self.sub_lbl.setText(subtitle)
-        self.sub_lbl.setVisible(bool(subtitle))
-
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {c['bg_primary']};
-                border: 0px;
-                border-bottom: 1px solid {c['border']};
-            }}
-        """)
-        self.title_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: 600; color: {c['text_primary']};"
-            f"background: transparent; border: 0px;"
-        )
-        self.sub_lbl.setStyleSheet(
-            f"font-size: 11px; color: {c['text_muted']};"
-            f"background: transparent; border: 0px;"
-        )
-
-
-# ─────────────────────────────────────────────
-#  STATUS BAR
-# ─────────────────────────────────────────────
-class StatusBar(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedHeight(22)
-        self._build()
-        ThemeManager.add_listener(self.apply_theme)
-
-    def _build(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(8)
-
-        self.status_lbl = QLabel("Ready")
-        self.status_lbl.setStyleSheet(
-            "font-size: 11px; background: transparent; border: 0px;"
-        )
-        layout.addWidget(self.status_lbl)
-        layout.addStretch()
-
-        self.right_lbl = QLabel("Uniquest v1.0.0")
-        self.right_lbl.setStyleSheet(
-            "font-size: 11px; background: transparent; border: 0px;"
-        )
-        layout.addWidget(self.right_lbl)
-        self.apply_theme()
-
-    def set_status(self, msg: str):
-        self.status_lbl.setText(msg)
-
-    def apply_theme(self):
-        c = ThemeManager.colors()
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {c['bg_primary']};
-                border: 0px;
-                border-top: 1px solid {c['border']};
-            }}
-        """)
-        self.status_lbl.setStyleSheet(
-            f"font-size: 11px; color: {c['text_muted']};"
-            f"background: transparent; border: 0px;"
-        )
-        self.right_lbl.setStyleSheet(
-            f"font-size: 11px; color: {c['text_muted']};"
-            f"background: transparent; border: 0px;"
-        )
-
-
-# ─────────────────────────────────────────────
-#  MAIN WINDOW
-# ─────────────────────────────────────────────
 class MainWindow(QMainWindow):
-    PAGE_TITLES = [
-        ("Dashboard",  "Overview of your projects"),
-        ("Projects",   "Manage analysis projects"),
-        ("Analysis",   "Import files and run scan"),
-        ("Results",    "View similarity matches"),
-        ("Settings",   "Configure preferences"),
-    ]
-
     def __init__(self):
         super().__init__()
-        self._current_page = 0
-        self._current_project = None
-        self._setup_window()
-        self._build_ui()
-        self._connect_signals()
-        self._go_to_page(0)
-
-    def _setup_window(self):
-        # Standard Windows title bar with min/max/close
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowTitleHint
-            | Qt.WindowType.WindowSystemMenuHint
-            | Qt.WindowType.WindowMinMaxButtonsHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
         self.setWindowTitle("Uniquest")
-        self.setMinimumSize(900, 600)
-        self.resize(1100, 700)
+        self.setMinimumSize(1024, 680)
+        self.resize(1280, 780)
+        self.setWindowFlags(
+            Qt.WindowType.Window |
+            Qt.WindowType.WindowMinimizeButtonHint |
+            Qt.WindowType.WindowMaximizeButtonHint |
+            Qt.WindowType.WindowCloseButtonHint
+        )
 
-        icon_path = assets_path() / "logo.ico"
-        if icon_path.exists():
-            self.setWindowIcon(QIcon(str(icon_path)))
+        self._theme    = get_setting("theme", "light")
+        self._pages    = {}
+        self._nav_btns = {}
 
-        screen = QApplication.primaryScreen()
-        if screen:
-            geo = screen.availableGeometry()
-            x = (geo.width() - 1100) // 2
-            y = (geo.height() - 700) // 2
-            self.move(x, y)
+        self._build_ui()
+        self._navigate("dashboard")
 
+    # ─────────────────────────────────────────────────────────
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-
         root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        self.sidebar = Sidebar()
-        root.addWidget(self.sidebar)
+        # sidebar
+        self._sidebar = self._make_sidebar()
+        root.addWidget(self._sidebar)
 
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(0)
+        # right side
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
 
-        self.topbar = TopBar()
-        right.addWidget(self.topbar)
+        self._topbar = self._make_topbar()
+        right_layout.addWidget(self._topbar)
 
-        self.stack = QStackedWidget()
-        self.page_dashboard = DashboardPage()
-        self.page_projects  = ProjectsPage()
-        self.page_analysis  = AnalysisPage()
-        self.page_results   = ResultsPage()
-        self.page_settings  = SettingsPage()
+        self._stack = QStackedWidget()
+        right_layout.addWidget(self._stack, 1)
 
-        self.stack.addWidget(self.page_dashboard)
-        self.stack.addWidget(self.page_projects)
-        self.stack.addWidget(self.page_analysis)
-        self.stack.addWidget(self.page_results)
-        self.stack.addWidget(self.page_settings)
-        right.addWidget(self.stack, 1)
+        root.addWidget(right, 1)
 
-        self.statusbar_custom = StatusBar()
-        right.addWidget(self.statusbar_custom)
+        # status bar
+        self._status = QStatusBar()
+        self._status.showMessage("Ready")
+        right_status = QLabel("Uniquest v1.0.0")
+        self._status.addPermanentWidget(right_status)
+        self.setStatusBar(self._status)
 
-        root.addLayout(right, 1)
+        # pages
+        self._load_pages()
 
-    def _connect_signals(self):
-        self.sidebar.nav_clicked.connect(self._go_to_page)
+    # ─────────────────────────────────────────────────────────
+    def _make_sidebar(self) -> QWidget:
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(180)
 
-        self.page_dashboard.open_project.connect(self._open_project_from_dashboard)
-        self.page_dashboard.go_to_projects.connect(lambda: self._go_to_page(1))
-        self.page_dashboard.go_to_analysis.connect(lambda: self._go_to_page(2))
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        self.page_projects.open_analysis.connect(self._open_project_analysis)
-        self.page_projects.project_created.connect(self._on_project_created)
+        # app title
+        title = QLabel("Uniquest")
+        title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setContentsMargins(0, 16, 0, 16)
+        layout.addWidget(title)
 
-        self.page_analysis.analysis_complete.connect(self._on_analysis_complete)
-        self.page_analysis.status_message.connect(self.statusbar_custom.set_status)
+        # separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(sep)
 
-        self.page_settings.theme_changed.connect(self._on_theme_changed)
+        # nav buttons
+        nav_items = [
+            ("dashboard", "Dashboard"),
+            ("projects",  "Projects"),
+            ("analysis",  "Analysis"),
+            ("results",   "Results"),
+            ("settings",  "Settings"),
+        ]
+        for key, label in nav_items:
+            btn = QPushButton(label)
+            btn.setObjectName("nav_btn")
+            btn.setFixedHeight(40)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda checked, k=key: self._navigate(k))
+            self._nav_btns[key] = btn
+            layout.addWidget(btn)
 
-        ThemeManager.add_listener(self._apply_theme)
+        layout.addStretch()
 
-    def _go_to_page(self, index: int):
-        self._current_page = index
-        self.stack.setCurrentIndex(index)
-        self.sidebar.set_page(index)
-        title, subtitle = self.PAGE_TITLES[index]
-        self.topbar.set_title(title, subtitle)
-        self._refresh_page(index)
+        # theme toggle
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(sep2)
 
-    def _refresh_page(self, index: int):
-        if index == 0:
-            self.page_dashboard.refresh()
-        elif index == 1:
-            self.page_projects.refresh()
-        elif index == 2:
-            self.page_analysis.refresh()
-        elif index == 3:
-            if self._current_project:
-                self.page_results.load_project(self._current_project)
-        elif index == 4:
-            self.page_settings.refresh()
-
-    def _open_project_from_dashboard(self, project_id: int):
-        self._current_project = project_id
-        self.page_analysis.set_project(project_id)
-        self._go_to_page(2)
-
-    def _open_project_analysis(self, project_id: int):
-        self._current_project = project_id
-        self.page_analysis.set_project(project_id)
-        self._go_to_page(2)
-
-    def _on_project_created(self, project_id: int):
-        self._current_project = project_id
-        self.page_analysis.set_project(project_id)
-        self._go_to_page(2)
-
-    def _on_analysis_complete(self, project_id, text_found, img_found):
-        self._current_project = project_id
-        self.page_results.load_project(project_id)
-        self.statusbar_custom.set_status(
-            f"Analysis complete - {text_found} text, {img_found} image matches"
+        self._theme_btn = QPushButton(
+            "Dark Mode" if self._theme == "light" else "Light Mode"
         )
-        self.setWindowState(
-            self.windowState() & ~Qt.WindowState.WindowMinimized
+        self._theme_btn.setObjectName("nav_btn")
+        self._theme_btn.setFixedHeight(36)
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        layout.addWidget(self._theme_btn)
+
+        ver = QLabel("v1.0.0")
+        ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ver.setContentsMargins(0, 4, 0, 8)
+        layout.addWidget(ver)
+
+        return sidebar
+
+    # ─────────────────────────────────────────────────────────
+    def _make_topbar(self) -> QWidget:
+        bar = QWidget()
+        bar.setFixedHeight(52)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(16, 0, 16, 0)
+
+        self._page_title    = QLabel("Dashboard")
+        self._page_subtitle = QLabel("Overview of your projects and recent activity")
+
+        self._page_title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        self._page_subtitle.setStyleSheet("color: #666666; font-size: 9pt;")
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(0)
+        title_col.addWidget(self._page_title)
+        title_col.addWidget(self._page_subtitle)
+
+        layout.addLayout(title_col)
+        layout.addStretch()
+
+        return bar
+
+    # ─────────────────────────────────────────────────────────
+    def _load_pages(self):
+        from ui.dashboard import DashboardPage
+        from ui.projects  import ProjectsPage
+        from ui.analysis  import AnalysisPage
+        from ui.results   import ResultsPage
+        from ui.settings  import SettingsPage
+
+        pages = [
+            ("dashboard", DashboardPage(self)),
+            ("projects",  ProjectsPage(self)),
+            ("analysis",  AnalysisPage(self)),
+            ("results",   ResultsPage(self)),
+            ("settings",  SettingsPage(self)),
+        ]
+        for key, page in pages:
+            self._pages[key] = page
+            self._stack.addWidget(page)
+
+    # ─────────────────────────────────────────────────────────
+    def _navigate(self, key: str):
+        titles = {
+            "dashboard": ("Dashboard",  "Overview of your projects and recent activity"),
+            "projects":  ("Projects",   "Create and manage your projects"),
+            "analysis":  ("Analysis",   "Import files and find duplicates"),
+            "results":   ("Results",    "Review similarity matches"),
+            "settings":  ("Settings",   "Configure application preferences"),
+        }
+
+        # update active button style
+        for k, btn in self._nav_btns.items():
+            btn.setProperty("active", k == key)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        # switch page
+        if key in self._pages:
+            self._stack.setCurrentWidget(self._pages[key])
+            if hasattr(self._pages[key], "on_show"):
+                self._pages[key].on_show()
+
+        # update topbar
+        if key in titles:
+            t, s = titles[key]
+            self._page_title.setText(t)
+            self._page_subtitle.setText(s)
+
+    # ─────────────────────────────────────────────────────────
+    def _toggle_theme(self):
+        self._theme = "dark" if self._theme == "light" else "light"
+        set_setting("theme", self._theme)
+        apply_theme(self._app_ref(), self._theme)
+        self._theme_btn.setText(
+            "Dark Mode" if self._theme == "light" else "Light Mode"
         )
-        self.raise_()
-        self.activateWindow()
-        self.showNormal()
-        QTimer.singleShot(600, lambda: self._go_to_page(3))
 
-    def _on_theme_changed(self):
-        app = QApplication.instance()
-        if app:
-            refresh_theme(app)
-        self._apply_theme()
+    def _app_ref(self):
+        from PyQt6.QtWidgets import QApplication
+        return QApplication.instance()
 
-    def _apply_theme(self):
-        c = ThemeManager.colors()
-        self.centralWidget().setStyleSheet(
-            f"background-color: {c['bg_primary']};"
-        )
+    # ─────────────────────────────────────────────────────────
+    def navigate_to(self, key: str):
+        """Public method called from other pages."""
+        self._navigate(key)
 
-    def closeEvent(self, event):
-        ThemeManager.remove_listener(self._apply_theme)
-        event.accept()
+    def set_status(self, msg: str):
+        self._status.showMessage(msg)
