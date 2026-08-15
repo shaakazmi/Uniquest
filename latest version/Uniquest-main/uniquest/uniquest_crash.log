@@ -1,0 +1,41 @@
+
+============================================================
+2026-08-01 22:29:45.629587
+Traceback (most recent call last):
+  File "/workspaces/Uniquest/uniquest/main.py", line 247, in <module>
+    main()
+  File "/workspaces/Uniquest/uniquest/main.py", line 177, in main
+    from PyQt6.QtWidgets import QApplication
+ImportError: libGL.so.1: cannot open shared object file: No such file or directory
+
+
+============================================================
+2026-08-05 16:00:35.162021
+Traceback (most recent call last):
+  File "C:\Users\HP\Desktop\Uniquest-main\uniquest\ui\main_window.py", line 454, in _go_to_page
+    self._refresh_page(index)
+  File "C:\Users\HP\Desktop\Uniquest-main\uniquest\ui\main_window.py", line 465, in _refresh_page
+    self.page_results.load_project(self._current_project)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ResultsPage' object has no attribute 'load_project'
+
+
+============================================================
+2026-08-05 16:06:07.129295
+Traceback (most recent call last):
+  File "C:\Users\HP\Desktop\Uniquest-main\uniquest\ui\main_window.py", line 486, in _on_analysis_complete
+    self.page_results.load_project(project_id)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ResultsPage' object has no attribute 'load_project'
+
+
+============================================================
+2026-08-05 16:08:17.450561
+Traceback (most recent call last):
+  File "C:\Users\HP\Desktop\Uniquest-main\uniquest\ui\main_window.py", line 454, in _go_to_page
+    self._refresh_page(index)
+  File "C:\Users\HP\Desktop\Uniquest-main\uniquest\ui\main_window.py", line 465, in _refresh_page
+    self.page_results.load_project(self._current_project)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ResultsPage' object has no attribute 'load_project'
+
