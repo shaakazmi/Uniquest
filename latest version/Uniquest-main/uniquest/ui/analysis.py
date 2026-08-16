@@ -258,6 +258,7 @@ class ProgressPanel(QGroupBox):
         layout.addWidget(self.msg_lbl)
 
         self.log_box = QTextEdit()
+        self.log_box.document().setMaximumBlockCount(300)
         self.log_box.setReadOnly(True)
         self.log_box.setFixedHeight(80)
         self.log_box.setStyleSheet(
@@ -391,17 +392,44 @@ class FileTable(QTableWidget):
 class AnalysisPage(QWidget):
     analysis_complete = pyqtSignal(int, int, int)
     status_message = pyqtSignal(str)
+    log_message = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._project_id = None
         self._project_data = None
+        self._pending_logs = []
         self._worker = None
         self._files = []
         self._scan_mode = "single"
         self._build()
         ThemeManager.add_listener(self.apply_theme)
+        self._pending_progress = None
+        self._log_timer = QTimer(self)
+        self._log_timer.setInterval(100)
+        self._log_timer.timeout.connect(self._flush_logs)
+        self._log_timer.start()
 
+    def _queue_progress(self, pct: int, msg: str):
+     self._pending_progress = (pct, msg)
+
+
+    def _flush_logs(self):
+    if self._pending_progress is not None:
+        pct, msg = self._pending_progress
+        self.progress_panel.update_progress(pct, msg)
+        self._pending_progress = None
+
+    if not self._pending_logs:
+        return
+
+    messages = self._pending_logs
+    self._pending_logs.clear()
+
+    for msg in messages:
+        self.progress_panel.append_log(msg)
+
+        
     def _build(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 12, 16, 12)
@@ -687,10 +715,10 @@ class AnalysisPage(QWidget):
             text_threshold=threshold,
             image_threshold=0.85,
         )
-        self._worker.progress_changed.connect(self.progress_panel.update_progress)
+        self._worker.progress_changed.connect(self._queue_progress)
         self._worker.stage_changed.connect(self.progress_panel.update_stage)
-        self._worker.log_message.connect(self.progress_panel.append_log)
-        self._worker.file_processed.connect(lambda *a: self._load_files())
+        self._worker.log_message.connect(self._queue_log_message)
+        # self._worker
         self._worker.finished_ok.connect(self._on_finished_ok)
         self._worker.finished_error.connect(self._on_finished_error)
 
@@ -699,6 +727,7 @@ class AnalysisPage(QWidget):
         self.progress_panel.start()
         self.status_message.emit("Analysis running...")
         self._worker.start()
+        self._load_files()
 
     def _on_cancel(self):
         if self._worker and self._worker.isRunning():
@@ -737,3 +766,7 @@ class AnalysisPage(QWidget):
     def apply_theme(self):
         c = ThemeManager.colors()
         self.setStyleSheet(f"background-color: {c['bg_primary']};")
+       
+    def _queue_log_message(self, msg: str):
+    
+       self._pending_logs.append(msg)
