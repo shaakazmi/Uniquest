@@ -20,7 +20,6 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QPixmap, QColor
 
 from core.search import search_text, search_image, search_trademark
-from core.processor import get_all_projects
 
 
 VERDICT_COLORS = {
@@ -66,11 +65,6 @@ class SearchPage(QWidget):
         self._image_query_path: str | None = None
         self._build_ui()
 
-    def on_show(self):
-        self._refresh_project_lists()
-
-    def refresh(self):
-        self._refresh_project_lists()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -88,100 +82,98 @@ class SearchPage(QWidget):
         root.addWidget(subtitle)
 
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_text_tab(),     "Text Search")
-        self._tabs.addTab(self._build_image_tab(),    "Image Search")
+        self._tabs.addTab(self._build_image_tab(),    "Local Search")
         self._tabs.addTab(self._build_trademark_tab(), "Trademark Search")
         root.addWidget(self._tabs, 1)
 
-    # ─────────────────────────────────────────
-    # TEXT SEARCH TAB
-    # ─────────────────────────────────────────
-    def _build_text_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 0)
+    # # ─────────────────────────────────────────
+    # # TEXT SEARCH TAB
+    # # ─────────────────────────────────────────
+    # def _build_text_tab(self) -> QWidget:
+    #     page = QWidget()
+    #     layout = QVBoxLayout(page)
+    #     layout.setContentsMargins(0, 8, 0, 0)
 
-        grp = QGroupBox("Text Query")
-        gl  = QVBoxLayout(grp)
+    #     grp = QGroupBox("Text Query")
+    #     gl  = QVBoxLayout(grp)
 
-        row_input = QHBoxLayout()
-        row_input.addWidget(QLabel("Search:"))
-        self._text_input = QLineEdit()
-        self._text_input.setPlaceholderText(
-            "Type a word, phrase, or sentence to find similar content..."
-        )
-        self._text_input.setFixedHeight(28)
-        self._text_input.returnPressed.connect(self._run_text_search)
-        row_input.addWidget(self._text_input, 1)
+    #     row_input = QHBoxLayout()
+    #     row_input.addWidget(QLabel("Search:"))
+    #     self._text_input = QLineEdit()
+    #     self._text_input.setPlaceholderText(
+    #         "Type a word, phrase, or sentence to find similar content..."
+    #     )
+    #     self._text_input.setFixedHeight(28)
+    #     self._text_input.returnPressed.connect(self._run_text_search)
+    #     row_input.addWidget(self._text_input, 1)
 
-        self._text_btn = QPushButton("Search")
-        self._text_btn.setFixedHeight(28)
-        self._text_btn.setMinimumWidth(100)
-        self._text_btn.clicked.connect(self._run_text_search)
-        row_input.addWidget(self._text_btn)
-        gl.addLayout(row_input)
+    #     self._text_btn = QPushButton("Search")
+    #     self._text_btn.setFixedHeight(28)
+    #     self._text_btn.setMinimumWidth(100)
+    #     self._text_btn.clicked.connect(self._run_text_search)
+    #     row_input.addWidget(self._text_btn)
+    #     gl.addLayout(row_input)
 
-        row_scope = QHBoxLayout()
-        row_scope.addWidget(QLabel("Scope:"))
-        self._text_scope = QComboBox()
-        self._text_scope.setFixedHeight(26)
-        self._text_scope.setMinimumWidth(220)
-        self._text_scope.addItem("All Projects", None)
-        row_scope.addWidget(self._text_scope)
-        row_scope.addStretch()
-        gl.addLayout(row_scope)
+    #     row_scope = QHBoxLayout()
+    #     row_scope.addWidget(QLabel("Scope:"))
+    #     self._text_scope = QComboBox()
+    #     self._text_scope.setFixedHeight(26)
+    #     self._text_scope.setMinimumWidth(220)
+    #     row_scope.addWidget(self._text_scope)
+    #     row_scope.addStretch()
+    #     gl.addLayout(row_scope)
 
-        layout.addWidget(grp)
+    #     layout.addWidget(grp)
 
-        self._text_status = QLabel("")
-        self._text_status.setFont(QFont("Segoe UI", 9))
-        layout.addWidget(self._text_status)
+    #     self._text_status = QLabel("")
+    #     self._text_status.setFont(QFont("Segoe UI", 9))
+    #     layout.addWidget(self._text_status)
 
-        self._text_table = QTableWidget()
-        self._text_table.setColumnCount(6)
-        self._text_table.setHorizontalHeaderLabels([
-            "Score", "Project", "File", "Page", "Type", "Preview"
-        ])
-        self._text_table.verticalHeader().setVisible(False)
-        self._text_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._text_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._text_table.setAlternatingRowColors(True)
-        hdr = self._text_table.horizontalHeader()
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        for col in (0, 1, 2, 3, 4):
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self._text_table, 1)
+    #     self._text_table = QTableWidget()
+    #     self._text_table.setColumnCount(6)
+    #     self._text_table.setHorizontalHeaderLabels([
+    #         "Score", "Project", "File", "Page", "Type", "Preview"
+    #     ])
+    #     self._text_table.verticalHeader().setVisible(False)
+    #     self._text_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    #     self._text_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    #     self._text_table.setAlternatingRowColors(True)
+    #     hdr = self._text_table.horizontalHeader()
+    #     hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+    #     for col in (0, 1, 2, 3, 4):
+    #         hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+    #     layout.addWidget(self._text_table, 1)
 
-        return page
+    #     return page
 
-    def _run_text_search(self):
-        query = self._text_input.text().strip()
-        if not query:
-            return
-        pid = self._text_scope.currentData()
+    # def _run_text_search(self):
+    #     query = self._text_input.text().strip()
+    #     if not query:
+    #         return
+    #     pid = self._text_scope.currentData()
 
-        self._text_btn.setEnabled(False)
-        self._text_status.setText("Searching...")
+    #     self._text_btn.setEnabled(False)
+    #     self._text_status.setText("Searching...")
 
-        self._worker = SearchWorker("text", query=query, project_id=pid)
-        self._worker.finished_ok.connect(self._on_text_results)
-        self._worker.error.connect(self._on_search_error)
-        self._worker.start()
+    #     self._worker = SearchWorker("text", query=query, project_id=pid)
+    #     self._worker.finished_ok.connect(self._on_text_results)
+    #     self._worker.error.connect(self._on_search_error)
+    #     self._worker.start()
 
-    def _on_text_results(self, results: list):
-        self._text_btn.setEnabled(True)
-        self._text_status.setText(f"{len(results)} result(s) found.")
-        self._text_table.setRowCount(0)
+    # def _on_text_results(self, results: list):
+    #     self._text_btn.setEnabled(True)
+    #     self._text_status.setText(f"{len(results)} result(s) found.")
+    #     self._text_table.setRowCount(0)
 
-        for r in results:
-            row = self._text_table.rowCount()
-            self._text_table.insertRow(row)
-            self._text_table.setItem(row, 0, QTableWidgetItem(f"{r['score']*100:.1f}%"))
-            self._text_table.setItem(row, 1, QTableWidgetItem(r["project_name"] or ""))
-            self._text_table.setItem(row, 2, QTableWidgetItem(r["file_name"] or ""))
-            self._text_table.setItem(row, 3, QTableWidgetItem(str(r["page_number"] or 0)))
-            self._text_table.setItem(row, 4, QTableWidgetItem(r["chunk_type"] or ""))
-            self._text_table.setItem(row, 5, QTableWidgetItem(r["snippet"] or ""))
+    #     for r in results:
+    #         row = self._text_table.rowCount()
+    #         self._text_table.insertRow(row)
+    #         self._text_table.setItem(row, 0, QTableWidgetItem(f"{r['score']*100:.1f}%"))
+    #         self._text_table.setItem(row, 1, QTableWidgetItem(r["project_name"] or ""))
+    #         self._text_table.setItem(row, 2, QTableWidgetItem(r["file_name"] or ""))
+    #         self._text_table.setItem(row, 3, QTableWidgetItem(str(r["page_number"] or 0)))
+    #         self._text_table.setItem(row, 4, QTableWidgetItem(r["chunk_type"] or ""))
+    #         self._text_table.setItem(row, 5, QTableWidgetItem(r["snippet"] or ""))
 
     # ─────────────────────────────────────────
     # IMAGE SEARCH TAB
@@ -191,7 +183,7 @@ class SearchPage(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
 
-        grp = QGroupBox("Image Query")
+        grp = QGroupBox("Logo Query")
         gl  = QVBoxLayout(grp)
 
         row_pick = QHBoxLayout()
@@ -219,7 +211,6 @@ class SearchPage(QWidget):
         self._img_scope = QComboBox()
         self._img_scope.setFixedHeight(26)
         self._img_scope.setMinimumWidth(220)
-        self._img_scope.addItem("All Projects", None)
         row_scope.addWidget(self._img_scope)
 
         self._img_btn = QPushButton("Search")
@@ -477,7 +468,6 @@ class SearchPage(QWidget):
             current = combo.currentData()
             combo.blockSignals(True)
             combo.clear()
-            combo.addItem("All Projects", None)
             for p in projects:
                 combo.addItem(p["name"], p["id"])
             # Restore selection if possible

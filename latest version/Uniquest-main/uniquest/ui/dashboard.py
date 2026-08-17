@@ -88,7 +88,7 @@ class RecentProjectRow(QFrame):
         self.name_lbl = QLabel(self.project.get("name", "Unnamed"))
         self.name_lbl.setStyleSheet(
             "font-size: 12px; background: transparent; border: 0px;"
-        )
+        )RecentProjectRow
 
         file_count = self.project.get("file_count", 0)
         updated = self.project.get("updated_at", "")[:10]
@@ -264,7 +264,7 @@ class DashboardPage(QWidget):
         self.main_layout.addWidget(self.loading_lbl)
 
         # Welcome message
-        self.welcome_lbl = QLabel("Welcome to Uniquest")
+        self.welcome_lbl = QLabel("Welcome to IPOGenie")
         self.welcome_lbl.setStyleSheet(
             "font-size: 16px; font-weight: 700;"
             "background: transparent; border: 0px;"
@@ -272,8 +272,8 @@ class DashboardPage(QWidget):
         self.main_layout.addWidget(self.welcome_lbl)
 
         self.sub_lbl = QLabel(
-            "Find similar text and images across your files."
-        )
+    "Trademark intelligence and Pakistan IPO registry analysis."
+)
         self.sub_lbl.setStyleSheet(
             "font-size: 12px; background: transparent; border: 0px;"
         )
@@ -285,12 +285,10 @@ class DashboardPage(QWidget):
         stats_layout.setSpacing(6)
         stats_layout.setContentsMargins(10, 14, 10, 10)
 
-        self.card_projects = StatItem("Total projects")
-        self.card_files    = StatItem("Total files")
-        self.card_text     = StatItem("Text matches")
-        self.card_images   = StatItem("Image matches")
-        self.card_runs     = StatItem("Scans completed")
-        self.card_total    = StatItem("Total matches")
+        self.card_trademarks = StatItem("Registered trademarks")
+        self.card_classes = StatItem("Nice classes")
+        self.card_import = StatItem("Latest import")
+        self.card_searches = StatItem("Searches")
 
         stats_layout.addWidget(self.card_projects, 0, 0)
         stats_layout.addWidget(self.card_files,    0, 1)
@@ -307,22 +305,17 @@ class DashboardPage(QWidget):
         actions_layout.setSpacing(8)
         actions_layout.setContentsMargins(10, 14, 10, 10)
 
-        self.btn_new_project = QPushButton("New Project")
+        self.btn_new_project = QPushButton("Trademark Registry")
         self.btn_new_project.setProperty("class", "accent")
         self.btn_new_project.setMinimumHeight(32)
-        self.btn_new_project.clicked.connect(self.go_to_projects)
+        self.btn_new_project.clicked.connect(self.go_to_registry)
 
-        self.btn_run_analysis = QPushButton("Run Analysis")
+        self.btn_run_analysis = QPushButton("Search Trademarks")
         self.btn_run_analysis.setMinimumHeight(32)
-        self.btn_run_analysis.clicked.connect(self.go_to_analysis)
+        self.btn_run_analysis.clicked.connect(self.go_to_search)
 
-        self.btn_view_results = QPushButton("View Results")
-        self.btn_view_results.setMinimumHeight(32)
-        self.btn_view_results.clicked.connect(self.go_to_analysis)
-
-        actions_layout.addWidget(self.btn_new_project)
-        actions_layout.addWidget(self.btn_run_analysis)
-        actions_layout.addWidget(self.btn_view_results)
+        actions_layout.addWidget(self.btn_new_registry)
+        actions_layout.addWidget(self.btn_run_search)
         actions_layout.addStretch()
 
         self.main_layout.addWidget(actions_group)

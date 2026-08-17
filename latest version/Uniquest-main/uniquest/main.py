@@ -56,7 +56,7 @@ def check_dependencies() -> list:
 
 
 def setup_crash_handler():
-    log_path = ROOT / "uniquest_crash.log"
+    log_path = ROOT / "IPOGenie_crash.log"
 
     def handle_exception(exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
@@ -81,7 +81,7 @@ def setup_crash_handler():
             if app:
                 QMessageBox.critical(
                     None,
-                    "Uniquest — Unexpected Error",
+                    "IPOGenie — Unexpected Error",
                     f"An unexpected error occurred:\n\n"
                     f"{exc_type.__name__}: {exc_value}\n\n"
                     f"Details saved to:\n{log_path}",
@@ -121,7 +121,7 @@ def show_splash(app):
     painter.drawText(
         0, 150, 480, 40,
         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-        "Uniquest",
+        "IPOGenie",
     )
 
     painter.setPen(QColor("#8892b0"))
@@ -154,7 +154,7 @@ def show_dependency_error(missing: list):
     pkg_list = "\n".join(f"  • {p}" for p in missing)
     QMessageBox.critical(
         None,
-        "Uniquest — Missing Dependencies",
+        "IPOGenie — Missing Dependencies",
         f"Missing packages:\n\n{pkg_list}\n\n"
         f"Run:\n  pip install -r requirements.txt",
     )
@@ -178,9 +178,9 @@ def main():
     from PyQt6.QtCore import Qt
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Uniquest")
+    app.setApplicationName("IPOGenie")
     app.setApplicationVersion("1.0.0")
-    app.setOrganizationName("Uniquest")
+    app.setOrganizationName("IPOGenie")
 
     # Set app-wide icon
     from PyQt6.QtGui import QIcon
@@ -239,7 +239,7 @@ def main():
     window.raise_()
     window.activateWindow()
 
-    print("✅ Uniquest started successfully")
+    print("✅ IPOGenie started successfully")
     sys.exit(app.exec())
 
 

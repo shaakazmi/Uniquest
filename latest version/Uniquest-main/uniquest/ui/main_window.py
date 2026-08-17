@@ -543,11 +543,8 @@ from PyQt6.QtGui import (
 
 from utils.theme import ThemeManager, build_stylesheet, refresh_theme
 from ui.dashboard import DashboardPage
-from ui.projects import ProjectsPage
-from ui.analysis import AnalysisPage
-from ui.results import ResultsPage
-from ui.settings import SettingsPage
 from ui.search import SearchPage
+from ui.settings import SettingsPage
 
 
 def assets_path() -> Path:
@@ -620,9 +617,6 @@ class Sidebar(QFrame):
 
     NAV_ITEMS = [
         "Dashboard",
-        "Projects",
-        "Analysis",
-        "Results",
         "Search",
         "Registry",
         "Settings",
@@ -879,20 +873,14 @@ class StatusBar(QFrame):
 class MainWindow(QMainWindow):
     # Order MUST match Sidebar.NAV_ITEMS
     PAGE_TITLES = [
-        ("Dashboard",  "Overview of your projects"),
-        ("Projects",   "Manage analysis projects"),
-        ("Analysis",   "Import files and run scan"),
-        ("Results",    "View similarity matches"),
-        ("Search",     "Live search across all indexed content"),
-        ("Registry",   "Manage trademark registry entries"),
-        ("Settings",   "Configure preferences"),
-    ]
+    ("Dashboard", "IPO Genie overview"),
+    ("Registry", "Trademark registry"),
+    ("Search", "Trademark and logo search"),
+    ("Settings", "Configure IPO Genie"),
+]
 
     # Page indexes
     IDX_DASHBOARD = 0
-    IDX_PROJECTS  = 1
-    IDX_ANALYSIS  = 2
-    IDX_RESULTS   = 3
     IDX_SEARCH    = 4
     IDX_REGISTRY  = 5
     IDX_SETTINGS  = 6
@@ -950,20 +938,14 @@ class MainWindow(QMainWindow):
         # ── Build all pages ──────────────────────────
         self.stack = QStackedWidget()
         self.page_dashboard = DashboardPage()
-        self.page_projects  = ProjectsPage()
-        self.page_analysis  = AnalysisPage()
-        self.page_results   = ResultsPage(self)
         self.page_search    = SearchPage(self)
         self.page_registry  = RegistryPage(self)
         self.page_settings  = SettingsPage()
 
         self.stack.addWidget(self.page_dashboard)   # 0
-        self.stack.addWidget(self.page_projects)    # 1
-        self.stack.addWidget(self.page_analysis)    # 2
-        self.stack.addWidget(self.page_results)     # 3
-        self.stack.addWidget(self.page_search)      # 4
-        self.stack.addWidget(self.page_registry)    # 5
-        self.stack.addWidget(self.page_settings)    # 6
+        self.stack.addWidget(self.page_search)      # 1
+        self.stack.addWidget(self.page_registry)    # 2
+        self.stack.addWidget(self.page_settings)    # 3
 
         right.addWidget(self.stack, 1)
 
@@ -975,26 +957,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         self.sidebar.nav_clicked.connect(self._go_to_page)
 
-        # Dashboard signals — check if they exist
-        if hasattr(self.page_dashboard, "open_project"):
-            self.page_dashboard.open_project.connect(self._open_project_from_dashboard)
-        if hasattr(self.page_dashboard, "go_to_projects"):
-            self.page_dashboard.go_to_projects.connect(lambda: self._go_to_page(self.IDX_PROJECTS))
-        if hasattr(self.page_dashboard, "go_to_analysis"):
-            self.page_dashboard.go_to_analysis.connect(lambda: self._go_to_page(self.IDX_ANALYSIS))
-
-        # Projects signals
-        if hasattr(self.page_projects, "open_analysis"):
-            self.page_projects.open_analysis.connect(self._open_project_analysis)
-        if hasattr(self.page_projects, "project_created"):
-            self.page_projects.project_created.connect(self._on_project_created)
-
-        # Analysis signals
-        if hasattr(self.page_analysis, "analysis_complete"):
-            self.page_analysis.analysis_complete.connect(self._on_analysis_complete)
-        if hasattr(self.page_analysis, "status_message"):
-            self.page_analysis.status_message.connect(self.statusbar_custom.set_status)
-
+        
         # Settings signals
         if hasattr(self.page_settings, "theme_changed"):
             self.page_settings.theme_changed.connect(self._on_theme_changed)
@@ -1020,15 +983,9 @@ class MainWindow(QMainWindow):
         # Try calling refresh, on_show, or load_project depending on page
         if index == self.IDX_DASHBOARD:
             self._safe_call(page, "refresh")
-        elif index == self.IDX_PROJECTS:
-            self._safe_call(page, "refresh")
-        elif index == self.IDX_ANALYSIS:
-            self._safe_call(page, "refresh")
-        elif index == self.IDX_RESULTS:
-            if self._current_project:
-                self._safe_call(page, "load_project", self._current_project)
-            else:
-                self._safe_call(page, "refresh")
+     
+        else:
+           self._safe_call(page, "refresh")
                 
         elif index == self.IDX_SEARCH:
             self._safe_call(page, "on_show")
@@ -1046,35 +1003,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"_safe_call {method_name} error: {e}")
 
-    def _open_project_from_dashboard(self, project_id: int):
-        self._current_project = project_id
-        self._safe_call(self.page_analysis, "set_project", project_id)
-        self._go_to_page(self.IDX_ANALYSIS)
+    
 
-    def _open_project_analysis(self, project_id: int):
-        self._current_project = project_id
-        self._safe_call(self.page_analysis, "set_project", project_id)
-        self._go_to_page(self.IDX_ANALYSIS)
 
-    def _on_project_created(self, project_id: int):
-        self._current_project = project_id
-        self._safe_call(self.page_analysis, "set_project", project_id)
-        self._go_to_page(self.IDX_ANALYSIS)
-
-    def _on_analysis_complete(self, project_id, text_found, img_found):
-        self._current_project = project_id
-        self._safe_call(self.page_results, "load_project", project_id)
-        self.statusbar_custom.set_status(
-            f"Analysis complete - {text_found} text, {img_found} image matches"
-        )
-        self.setWindowState(
-            self.windowState() & ~Qt.WindowState.WindowMinimized
-        )
-        self.raise_()
-        self.activateWindow()
-        self.showNormal()
-        QTimer.singleShot(600, lambda: self._go_to_page(self.IDX_RESULTS))
-
+   
     def _on_theme_changed(self):
         app = QApplication.instance()
         if app:

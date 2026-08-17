@@ -297,9 +297,9 @@ class RegistryPage(QWidget):
 
         f_layout.addWidget(QLabel("Search:"))
         self._search_box = QLineEdit()
-        self._search_box.setPlaceholderText("Type trademark name...")
+        self._search_box.setPlaceholderText("Search trademark, applicant, application number...")
         self._search_box.setFixedHeight(28)
-        self._search_box.textChanged.connect(self._apply_filter)
+        self._search_box.textChanged.connect(self._trademark_name)
         f_layout.addWidget(self._search_box)
 
         f_layout.addWidget(QLabel("Nice Class:"))
